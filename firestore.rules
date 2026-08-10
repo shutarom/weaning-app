@@ -1,0 +1,49 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isMember(hid) {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/households/$(hid)/members/$(request.auth.uid));
+    }
+
+    match /households/{hid} {
+      // 招待コード（hid）を知っている前提のUXなので get は許可するが、
+      // 総当たりで存在チェックされないよう一覧列挙は禁止する。
+      allow get: if isSignedIn();
+      allow list: if false;
+      allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isSignedIn() &&
+        get(/databases/$(database)/documents/households/$(hid)).data.ownerUid == request.auth.uid;
+
+      match /members/{uid} {
+        allow read: if isMember(hid);
+        // 自分自身のメンバードキュメントのみ作成可能。
+        // role: 'owner' を名乗れるのは households/{hid}.ownerUid が自分の場合のみ。
+        allow create: if isSignedIn() && request.auth.uid == uid &&
+          (
+            (request.resource.data.role == 'owner' &&
+              get(/databases/$(database)/documents/households/$(hid)).data.ownerUid == request.auth.uid)
+            || request.resource.data.role == 'member'
+          );
+        allow update, delete: if false;
+      }
+
+      match /logs/{dateIso} {
+        allow read, write: if isMember(hid);
+      }
+
+      match /plans/{dateIso} {
+        allow read, write: if isMember(hid);
+      }
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
