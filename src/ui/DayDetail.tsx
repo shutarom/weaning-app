@@ -1,149 +1,357 @@
-import { useMemo, useState } from "react";
-import type { DailyLog, DailyPlan } from "../domain/types";
+import { useMemo, useReducer, useRef, useState } from "react";
+import type { DailyLog, DailyPlan, FreeEntry, MealName } from "../domain/types";
 import { generateSuggestion } from "../domain/suggestionEngine";
 import {
+  addFreeEntry,
   getLog,
   getRecentLogs,
+  getRecentPlans,
   getOrCreatePlan,
   regeneratePlan,
+  removeFreeEntry,
   upsertDayMemo,
   upsertMealLog,
 } from "../data/localStore";
 
+// ===== 食べた量ボタン =====
+const EAT_OPTIONS = [
+  { ratio: 1,    label: "完食",    color: "#10b981" },
+  { ratio: 0.75, label: "だいたい", color: "#84cc16" },
+  { ratio: 0.5,  label: "半分",    color: "#f59e0b" },
+  { ratio: 0.25, label: "少し",    color: "#f97316" },
+  { ratio: 0,    label: "食べず",  color: "#ef4444" },
+];
+
+function EatButtons({
+  value,
+  onChange,
+}: {
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+}) {
+  return (
+    <div className="eat-buttons">
+      {EAT_OPTIONS.map((opt) => {
+        const selected = value === opt.ratio;
+        return (
+          <button
+            key={opt.ratio}
+            className="eat-btn"
+            style={{
+              borderColor: opt.color,
+              background: selected ? opt.color : "transparent",
+              color: selected ? "#fff" : opt.color,
+            }}
+            onClick={() => onChange(selected ? undefined : opt.ratio)}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function eatLabel(ratio: number | undefined): string {
+  if (ratio === undefined) return "未記録";
+  const opt = EAT_OPTIONS.find((o) => o.ratio === ratio);
+  return opt ? opt.label : `${Math.round(ratio * 100)}%`;
+}
+
+function eatColor(ratio: number | undefined): string {
+  if (ratio === undefined) return "var(--text-muted)";
+  const opt = EAT_OPTIONS.find((o) => o.ratio === ratio);
+  return opt ? opt.color : "#888";
+}
+
+// ===== 自由入力セクション =====
+function FreeEntrySection({
+  dateIso,
+  mealName,
+  entries,
+  onChanged,
+}: {
+  dateIso: string;
+  mealName: MealName;
+  entries: FreeEntry[];
+  onChanged: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState("");
+  const [grams, setGrams] = useState("");
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const handleAdd = () => {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    addFreeEntry(dateIso, mealName, {
+      name: trimmed,
+      grams: grams ? Number(grams) : undefined,
+    });
+    setName("");
+    setGrams("");
+    setAdding(false);
+    onChanged();
+  };
+
+  const handleRemove = (id: string) => {
+    removeFreeEntry(dateIso, mealName, id);
+    onChanged();
+  };
+
+  return (
+    <div className="free-entry-section">
+      <div className="free-entry-label">食べたもの（自由メモ）</div>
+      {entries.map((e) => (
+        <div key={e.id} className="free-entry-item">
+          <span className="free-entry-name">{e.name}</span>
+          {e.grams && <span className="free-entry-grams">{e.grams}g</span>}
+          <button
+            className="free-entry-remove"
+            onClick={() => handleRemove(e.id)}
+            title="削除"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+      {adding ? (
+        <div className="free-entry-form">
+          <input
+            ref={inputRef}
+            className="free-entry-input"
+            placeholder="食材名・メモ"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") setAdding(false); }}
+            autoFocus
+          />
+          <input
+            className="free-entry-grams-input"
+            type="number"
+            placeholder="g"
+            value={grams}
+            onChange={(e) => setGrams(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+            min={0}
+          />
+          <button className="free-entry-add-btn" onClick={handleAdd}>追加</button>
+          <button className="free-entry-cancel-btn" onClick={() => { setAdding(false); setName(""); setGrams(""); }}>✕</button>
+        </div>
+      ) : (
+        <button className="add-free-entry-btn" onClick={() => setAdding(true)}>
+          ＋ 食材を追加
+        </button>
+      )}
+    </div>
+  );
+}
+
+// ===== メインコンポーネント =====
 export function DayDetail(props: { dateIso: string; ageMonths: number }) {
   const { dateIso, ageMonths } = props;
 
-  // ✅ plan: 保存済みがあればそれを使う。なければ生成して保存。
+  const [, forceUpdate] = useReducer((x) => x + 1, 0);
+
+  const makePlan = () => {
+    const recentLogs  = getRecentLogs(dateIso, 14);
+    const recentPlans = getRecentPlans(dateIso, 14);
+    return generateSuggestion({ dateIso, ageMonths, recentLogs, recentPlans });
+  };
+
   const [plan, setPlan] = useState<DailyPlan>(() =>
-    getOrCreatePlan(dateIso, () => {
-      const recentLogs = getRecentLogs(dateIso, 14);
-      return generateSuggestion({ dateIso, ageMonths, recentLogs });
-    })
+    getOrCreatePlan(dateIso, makePlan)
   );
 
-  // dateIsoが変わったら、対象日のplanをロード or 生成してstateへ
   useMemo(() => {
-    const next = getOrCreatePlan(dateIso, () => {
-      const recentLogs = getRecentLogs(dateIso, 14);
-      return generateSuggestion({ dateIso, ageMonths, recentLogs });
-    });
-    setPlan(next);
+    setPlan(getOrCreatePlan(dateIso, makePlan));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateIso, ageMonths]); // ageMonthsが変わる（生年月日変更）も考慮
+  }, [dateIso, ageMonths]);
 
-  const log: DailyLog | undefined = useMemo(() => getLog(dateIso), [dateIso]);
+  const log = (): DailyLog | undefined => getLog(dateIso);
+
+  const handleEat = (meal: MealName, ratio: number | undefined) => {
+    upsertMealLog(dateIso, meal, { eatenRatio: ratio });
+    forceUpdate();
+  };
+
+  const handleMemo = (meal: MealName, memo: string) => {
+    upsertMealLog(dateIso, meal, { memo });
+    forceUpdate();
+  };
+
+  const handleDayMemo = (memo: string) => {
+    upsertDayMemo(dateIso, memo);
+    forceUpdate();
+  };
+
+  const currentLog = log();
+  const isPast = dateIso < new Date().toISOString().slice(0, 10);
+  const isToday = dateIso === new Date().toISOString().slice(0, 10);
 
   return (
-    <div style={{ border: "1px solid #333", borderRadius: 12, padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "baseline", flexWrap: "wrap" }}>
+    <div className="day-detail">
+      {/* ヘッダー */}
+      <div className="day-detail-header">
         <div>
-          <strong>選択日: {dateIso}</strong>
-          <div style={{ opacity: 0.7, fontSize: 12 }}>
-            {plan.phase.label} / 補正 x{plan.adjustFactor.toFixed(2)} / {plan.guideNote}
+          <div className="day-detail-title">
+            {dateIso}
+            {isToday && <span className="today-chip">今日</span>}
           </div>
+          <div className="day-detail-sub">{plan.phase.label}・{plan.guideNote}</div>
         </div>
+        <button
+          className="regen-btn"
+          onClick={() => setPlan(regeneratePlan(dateIso, makePlan))}
+          title="提案を作り直す"
+        >
+          🔄 再生成
+        </button>
+      </div>
 
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ opacity: 0.7, fontSize: 12 }}>seed: {plan.seed}</div>
-          <button
-            onClick={() => {
-              const next = regeneratePlan(dateIso, () => {
-                const recentLogs = getRecentLogs(dateIso, 14);
-                return generateSuggestion({ dateIso, ageMonths, recentLogs });
-              });
-              setPlan(next);
-            }}
-            style={{ fontSize: 12 }}
-            title="提案を作り直す（保存も上書き）"
-          >
-            再生成
-          </button>
+      {/* 分析インサイト */}
+      {plan.insight && (
+        <div className="insight-card">
+          <span className="insight-icon">💡</span>
+          <span>{plan.insight}</span>
+        </div>
+      )}
+
+      {/* 食事カード */}
+      {plan.meals.map((meal) => {
+        const mlog = currentLog?.meals?.[meal.name];
+        const ratio = mlog?.eatenRatio;
+        const hasRecord = ratio !== undefined || (mlog?.freeEntries?.length ?? 0) > 0;
+
+        return (
+          <MealCard
+            key={meal.name}
+            dateIso={dateIso}
+            meal={meal}
+            mlog={mlog}
+            ratio={ratio}
+            hasRecord={hasRecord}
+            isPast={isPast || isToday}
+            onEat={(r) => handleEat(meal.name, r)}
+            onMemo={(m) => handleMemo(meal.name, m)}
+            onFreeChanged={forceUpdate}
+          />
+        );
+      })}
+
+      {/* その日のメモ */}
+      <div className="day-memo-card">
+        <strong>その日のメモ</strong>
+        <input
+          type="text"
+          value={currentLog?.dayMemo ?? ""}
+          onChange={(e) => handleDayMemo(e.target.value)}
+          placeholder="気になったことなど…"
+        />
+      </div>
+    </div>
+  );
+}
+
+// ===== 1食分カード =====
+function MealCard(props: {
+  dateIso: string;
+  meal: DailyPlan["meals"][number];
+  mlog: DailyLog["meals"][MealName] | undefined;
+  ratio: number | undefined;
+  hasRecord: boolean;
+  isPast: boolean;
+  onEat: (r: number | undefined) => void;
+  onMemo: (m: string) => void;
+  onFreeChanged: () => void;
+}) {
+  const { dateIso, meal, mlog, ratio, hasRecord, isPast, onEat, onMemo, onFreeChanged } = props;
+  const [showMemo, setShowMemo] = useState(!!mlog?.memo);
+  const [showFree, setShowFree] = useState((mlog?.freeEntries?.length ?? 0) > 0);
+
+  const MEAL_ICONS: Record<string, string> = { 朝: "🌅", 昼: "☀️", 夕: "🌙" };
+  const freeEntries = mlog?.freeEntries ?? [];
+
+  return (
+    <div className={`meal-card ${hasRecord ? "meal-card--recorded" : ""}`}>
+      {/* 食事名 + 記録状態 */}
+      <div className="meal-card-header">
+        <strong>
+          {MEAL_ICONS[meal.name] ?? ""} {meal.name}ごはん
+        </strong>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          {ratio !== undefined && (
+            <span className="eat-badge" style={{ color: eatColor(ratio) }}>
+              {eatLabel(ratio)}
+            </span>
+          )}
+          {freeEntries.length > 0 && ratio === undefined && (
+            <span className="eat-badge" style={{ color: "var(--accent)" }}>記録あり</span>
+          )}
+          <span style={{ opacity: 0.55, fontSize: 12 }}>目安 {meal.totalGrams}g</span>
         </div>
       </div>
 
-      <div style={{ marginTop: 12 }}>
-        {plan.meals.map((meal) => {
-          const mlog = log?.meals?.[meal.name];
+      {/* 提案食材リスト */}
+      <div className="meal-items-row">
+        {meal.items.map((it, i) => (
+          <span key={i} className="meal-item-chip">
+            {it.text.split("（")[0]} <span className="meal-item-gram">{it.grams}g</span>
+          </span>
+        ))}
+      </div>
 
-          return (
-            <div key={meal.name} style={{ border: "1px solid #333", borderRadius: 10, padding: 12, marginBottom: 12 }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" }}>
-                <strong>{meal.name}</strong>
-                <span style={{ opacity: 0.8 }}>目安合計: {meal.totalGrams}g</span>
-              </div>
+      {/* 調理法 */}
+      <div className="meal-cook-label">
+        {meal.items[0]?.text.match(/（(.+)）/)?.[1] ?? ""}
+      </div>
 
-              <ul style={{ margin: "8px 0 0", paddingLeft: 18 }}>
-                {meal.items.map((it, idx) => (
-                  <li key={idx}>
-                    {it.text}：{it.grams}g
-                  </li>
-                ))}
-              </ul>
+      {/* 実績入力（今日以前のみ） */}
+      {isPast && (
+        <div className="meal-record-section">
+          {/* 提案の食べた量 */}
+          <div className="meal-record-label">提案メニューの食べた量</div>
+          <EatButtons value={ratio} onChange={onEat} />
 
-              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginTop: 10 }}>
-                <label>
-                  食べた割合{" "}
-                  <select
-                    value={typeof mlog?.eatenRatio === "number" ? String(mlog.eatenRatio) : ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      upsertMealLog(dateIso, meal.name, { eatenRatio: v === "" ? undefined : Number(v) });
-                    }}
-                  >
-                    <option value="">未入力</option>
-                    <option value="1">完食(100%)</option>
-                    <option value="0.75">だいたい(75%)</option>
-                    <option value="0.5">半分(50%)</option>
-                    <option value="0.25">少し(25%)</option>
-                    <option value="0">食べず(0%)</option>
-                  </select>
-                </label>
-
-                <label>
-                  実食量(g){" "}
-                  <input
-                    type="number"
-                    min={0}
-                    value={typeof mlog?.actualGrams === "number" ? mlog.actualGrams : ""}
-                    onChange={(e) => {
-                      const raw = e.target.value.trim();
-                      upsertMealLog(dateIso, meal.name, {
-                        actualGrams: raw === "" ? undefined : Number(raw),
-                      });
-                    }}
-                  />
-                </label>
-
-                <label style={{ flex: "1 1 240px" }}>
-                  メモ{" "}
-                  <input
-                    type="text"
-                    value={mlog?.memo ?? ""}
-                    onChange={(e) => upsertMealLog(dateIso, meal.name, { memo: e.target.value })}
-                    style={{ width: "100%" }}
-                  />
-                </label>
-              </div>
-            </div>
-          );
-        })}
-
-        <div style={{ border: "1px solid #333", borderRadius: 10, padding: 12 }}>
-          <strong>その日メモ</strong>
-          <div style={{ marginTop: 8 }}>
-            <input
-              type="text"
-              value={log?.dayMemo ?? ""}
-              onChange={(e) => upsertDayMemo(dateIso, e.target.value)}
-              style={{ width: "100%" }}
+          {/* 自由入力セクション */}
+          {showFree ? (
+            <FreeEntrySection
+              dateIso={dateIso}
+              mealName={meal.name}
+              entries={freeEntries}
+              onChanged={onFreeChanged}
             />
+          ) : (
+            <button
+              className="add-free-entry-btn add-free-entry-btn--collapsed"
+              onClick={() => setShowFree(true)}
+            >
+              ＋ 別のものを食べた場合はこちら
+            </button>
+          )}
+
+          {/* 提案以外のメモ */}
+          <div className="meal-memo-row">
+            {showMemo ? (
+              <input
+                className="meal-memo-input"
+                type="text"
+                placeholder="メモ（アレルギー反応、好み等）"
+                value={mlog?.memo ?? ""}
+                onChange={(e) => onMemo(e.target.value)}
+                autoFocus
+              />
+            ) : (
+              <button
+                className="memo-toggle-btn"
+                onClick={() => setShowMemo(true)}
+              >
+                ＋ メモを追加
+              </button>
+            )}
           </div>
         </div>
-
-        <p style={{ opacity: 0.7, fontSize: 12, marginTop: 10 }}>
-          ※ 提案(plan)も保存されるので、同じ日付は同じ提案が出ます（再生成しない限り）。
-        </p>
-      </div>
+      )}
     </div>
   );
 }

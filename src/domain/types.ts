@@ -8,8 +8,8 @@ export type FoodCategory = "staple" | "veg" | "protein";
 
 export type PlanItem = {
   cat: FoodCategory;
-  text: string;        // 例: "10倍がゆ（ペースト）"
-  grams: number;       // 提案量
+  text: string;
+  grams: number;
 };
 
 export type MealPlan = {
@@ -19,20 +19,31 @@ export type MealPlan = {
 };
 
 export type DailyPlan = {
-  dateIso: string;         // YYYY-MM-DD
+  dateIso: string;
   phase: Phase;
   guideNote: string;
   seed: number;
   adjustFactor: number;
   meals: MealPlan[];
-  version: number;         // ロジック更新に備えて
+  version: number;
+  insight?: string;
+  avoidedFoods?: string[];
+};
+
+// 提案以外の食材・メモを自由に追加できるエントリ
+export type FreeEntry = {
+  id: string;
+  name: string;       // 食材名 or メモ
+  grams?: number;     // 任意
+  updatedAt: number;
 };
 
 export type MealLog = {
-  eatenRatio?: number;     // 0..1
-  actualGrams?: number;    // 合計g
+  eatenRatio?: number;    // 提案に対して食べた割合 0..1
+  actualGrams?: number;
   memo?: string;
-  updatedAt?: number;      // ms
+  freeEntries?: FreeEntry[];  // 自由入力した食材
+  updatedAt?: number;
 };
 
 export type DailyLog = {

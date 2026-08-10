@@ -3,7 +3,7 @@ import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
-  base: "/weaning-app/",
+  base: "/",
   plugins: [
     react(),
     VitePWA({
@@ -28,6 +28,7 @@ export default defineConfig({
       workbox: {
         // SPAでGitHub Pagesでも落ちにくい構成にする
         navigateFallback: "index.html",
+        navigateFallbackDenylist: [/^\/__\//],
       }
     }),
   ],

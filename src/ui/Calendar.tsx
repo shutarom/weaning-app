@@ -10,7 +10,7 @@ export function Calendar(props: {
   hasLog: (dateIso: string) => boolean;
   getLogMeta: (dateIso: string) => {
     text: string;
-    progress: number | null; // 0..1
+    progress: number | null;
     mealFlags: { 朝: boolean; 昼: boolean; 夕: boolean };
   };
   onSelect: (dateIso: string) => void;
@@ -32,31 +32,32 @@ export function Calendar(props: {
       : week.map((d) => ({ d, out: false }));
 
   const todayIso = toIso(new Date());
-
-  // モード別見た目（週は大きく、読みやすく）
-  const gap = isWeek ? 10 : 6;
-  const cellMinHeight = isWeek ? 132 : 72;
-  const dayFontSize = isWeek ? 22 : 16;
+  const gap = isWeek ? 8 : 4;
+  const cellMinHeight = isWeek ? 120 : 64;
 
   return (
-    <div style={{ border: "1px solid #333", borderRadius: 12, padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8 }}>
-        <strong style={{ color: "#e5e7eb" }}>{title}</strong>
-        <span style={{ opacity: 0.75, fontSize: 12, color: "#e5e7eb" }}>
-          {isWeek ? "週表示" : "月表示"}
-        </span>
+    <div className="calendar-wrap">
+      <div className="calendar-title-bar">
+        <span className="calendar-title">{title}</span>
+        <span className="calendar-mode-label">{isWeek ? "週表示" : "月表示"}</span>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(7, 1fr)", gap, marginTop: 10 }}>
-        {DOW.map((d) => (
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(7, 1fr)",
+          gap,
+        }}
+      >
+        {DOW.map((d, i) => (
           <div
             key={d}
             style={{
               textAlign: "center",
-              opacity: 0.85,
-              fontSize: isWeek ? 13 : 12,
+              fontSize: 12,
+              fontWeight: 600,
               padding: "6px 0",
-              color: "#e5e7eb",
+              color: i === 0 ? "#ef4444" : i === 6 ? "#3b82f6" : "#6b7280",
             }}
           >
             {d}
@@ -69,10 +70,30 @@ export function Calendar(props: {
           const logged = props.hasLog(iso);
           const isToday = iso === todayIso;
           const meta = props.getLogMeta(iso);
+          const isSun = d.getDay() === 0;
+          const isSat = d.getDay() === 6;
 
-          const bg = selected ? "#0b3b5a" : out ? "#0f0f0f" : "#151720";
-          const border = selected ? "2px solid #7dd3fc" : isToday ? "1px solid #666" : "1px solid #333";
-          const textColor = out ? "#9ca3af" : "#e5e7eb";
+          const bg = selected
+            ? "#6366f1"
+            : out
+            ? "#f8f9fb"
+            : "#ffffff";
+
+          const border = selected
+            ? "2px solid #6366f1"
+            : isToday
+            ? "2px solid #f59e0b"
+            : "1px solid #e2e5ef";
+
+          const dayColor = selected
+            ? "#ffffff"
+            : out
+            ? "#c0c4cc"
+            : isSun
+            ? "#ef4444"
+            : isSat
+            ? "#3b82f6"
+            : "#1a1a2e";
 
           return (
             <button
@@ -80,64 +101,90 @@ export function Calendar(props: {
               onClick={() => props.onSelect(iso)}
               style={{
                 textAlign: "left",
-                padding: isWeek ? 14 : 10,
+                padding: isWeek ? 10 : 6,
                 minHeight: cellMinHeight,
-                borderRadius: 14,
+                borderRadius: 10,
                 border,
                 background: bg,
-                opacity: out ? 0.55 : 1,
+                opacity: out ? 0.6 : 1,
                 cursor: "pointer",
-                color: textColor,
                 lineHeight: 1.2,
+                transition: "background 0.1s",
               }}
               title={iso}
             >
-              {/* 上段：日付・今日・ログ */}
-              <div style={{ display: "flex", justifyContent: "space-between", gap: 8, alignItems: "center" }}>
-                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                  <span style={{ fontWeight: 900, fontSize: dayFontSize }}>{d.getDate()}</span>
-                  {isToday && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        border: "1px solid #333",
-                        opacity: 0.9,
-                      }}
-                    >
-                      今日
-                    </span>
-                  )}
-                </div>
+              {/* 日付行 */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                  gap: 2,
+                }}
+              >
+                <span
+                  style={{
+                    fontWeight: 700,
+                    fontSize: isWeek ? 20 : 14,
+                    color: dayColor,
+                  }}
+                >
+                  {d.getDate()}
+                </span>
 
-                {logged ? (
+                {isToday && !selected && (
                   <span
                     style={{
-                      fontSize: 12,
-                      color: "#0b0f14",
-                      background: "#a7f3d0",
-                      padding: isWeek ? "4px 10px" : "2px 8px",
+                      fontSize: 10,
+                      padding: "1px 5px",
                       borderRadius: 999,
-                      fontWeight: 900,
+                      background: "#f59e0b",
+                      color: "#fff",
+                      fontWeight: 700,
+                    }}
+                  >
+                    今日
+                  </span>
+                )}
+
+                {logged && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      padding: "1px 5px",
+                      borderRadius: 999,
+                      background: selected ? "rgba(255,255,255,0.3)" : "#d1fae5",
+                      color: selected ? "#fff" : "#065f46",
+                      fontWeight: 700,
+                      whiteSpace: "nowrap",
                     }}
                   >
                     ログ
                   </span>
-                ) : (
-                  <span style={{ fontSize: 12, opacity: 0.25 }}> </span>
                 )}
               </div>
 
-              {/* 週表示だけ：要約・朝昼夕チップ・進捗バー */}
+              {/* 週表示のみ：要約・チップ・進捗バー */}
               {isWeek && (
-                <div style={{ marginTop: 10 }}>
-                  <div style={{ fontSize: 13, opacity: logged ? 0.95 : 0.6 }}>
+                <div style={{ marginTop: 8 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      color: selected ? "rgba(255,255,255,0.9)" : "#374151",
+                      opacity: logged ? 1 : 0.5,
+                    }}
+                  >
                     {logged ? meta.text : "未入力"}
                   </div>
 
-                  {/* 朝昼夕チップ */}
-                  <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+                  <div
+                    style={{
+                      display: "flex",
+                      gap: 4,
+                      marginTop: 6,
+                      flexWrap: "wrap",
+                    }}
+                  >
                     {MEAL_LABELS.map((m) => {
                       const done = meta.mealFlags[m];
                       return (
@@ -145,13 +192,23 @@ export function Calendar(props: {
                           key={m}
                           style={{
                             fontSize: 11,
-                            padding: "3px 8px",
+                            padding: "2px 6px",
                             borderRadius: 999,
-                            border: "1px solid #333",
-                            background: done ? (selected ? "#7dd3fc" : "#a7f3d0") : "#0b0f14",
-                            color: done ? "#0b0f14" : "#e5e7eb",
-                            opacity: done ? 1 : 0.65,
-                            fontWeight: 800,
+                            background: done
+                              ? selected
+                                ? "rgba(255,255,255,0.3)"
+                                : "#d1fae5"
+                              : selected
+                              ? "rgba(255,255,255,0.1)"
+                              : "#f3f4f6",
+                            color: done
+                              ? selected
+                                ? "#fff"
+                                : "#065f46"
+                              : selected
+                              ? "rgba(255,255,255,0.6)"
+                              : "#9ca3af",
+                            fontWeight: done ? 700 : 400,
                           }}
                         >
                           {m}
@@ -160,15 +217,13 @@ export function Calendar(props: {
                     })}
                   </div>
 
-                  {/* 進捗バー（eatenRatioが取れてる場合だけ） */}
                   {meta.progress !== null && (
                     <div
                       style={{
-                        marginTop: 10,
-                        height: 9,
+                        marginTop: 8,
+                        height: 6,
                         borderRadius: 999,
-                        background: "#0b0f14",
-                        border: "1px solid #333",
+                        background: selected ? "rgba(255,255,255,0.2)" : "#e5e7eb",
                         overflow: "hidden",
                       }}
                     >
@@ -176,7 +231,8 @@ export function Calendar(props: {
                         style={{
                           height: "100%",
                           width: `${Math.round(meta.progress * 100)}%`,
-                          background: selected ? "#7dd3fc" : "#a7f3d0",
+                          background: selected ? "#fff" : "#6366f1",
+                          borderRadius: 999,
                         }}
                       />
                     </div>
