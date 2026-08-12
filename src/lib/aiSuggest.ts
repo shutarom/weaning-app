@@ -79,7 +79,11 @@ export async function suggestMenu(params: {
   const prompt = buildPrompt(params);
   const result = await model.generateContent(prompt);
   const text = result.response.text();
-  const raw = JSON.parse(text) as RawResult;
+  // responseMimeType: "application/json" 指定時も、稀に ```json ... ``` で
+  // ラップされて返ることがあるため、パース前に念のため取り除く。
+  // (Antigravity/agyとのレビューで指摘)
+  const cleaned = text.replace(/^```(?:json)?\s*/i, "").replace(/\s*```\s*$/i, "").trim();
+  const raw = JSON.parse(cleaned) as RawResult;
 
   return {
     stage: raw.stage,

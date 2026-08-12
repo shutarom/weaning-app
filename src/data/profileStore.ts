@@ -1,5 +1,5 @@
 import type { BabyProfile } from "../domain/types";
-import { syncProfileToCloud } from "./cloudSync";
+import { syncProfilePatchToCloud, addAllergyToCloud, removeAllergyFromCloud, toMillis } from "./cloudSync";
 
 const KEY = "weaning_profile_v1";
 // 旧バージョンのローカル専用キー（世帯同期がなかった頃の名残）。
@@ -46,17 +46,39 @@ function writeLocal(profile: BabyProfile): void {
   notifyChanged();
 }
 
+/**
+ * 変更されたフィールドだけをクラウドへ送る（丸ごと送信すると、他デバイスが
+ * 直前に更新した未変更フィールドを、こちら側の古いローカルキャッシュの値で
+ * 上書きしてしまうため）。ローカルキャッシュには表示用に全体をマージして保存する。
+ * (Antigravity/agyとのレビューで指摘された「全体上書きによるフィールドのクロバー」対策)
+ */
 export function saveProfile(patch: Partial<BabyProfile>): void {
   const next: BabyProfile = { ...loadProfile(), ...patch, updatedAt: Date.now() };
   writeLocal(next);
-  void syncProfileToCloud(next).catch((e) => console.error("syncProfileToCloud failed", e));
+  void syncProfilePatchToCloud(patch).catch((e) => console.error("syncProfilePatchToCloud failed", e));
 }
 
-/** クラウドの方が新しければローカルへ反映する */
+export function addAllergy(name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed) return;
+  const local = loadProfile();
+  if (local.allergies.includes(trimmed)) return;
+  writeLocal({ ...local, allergies: [...local.allergies, trimmed], updatedAt: Date.now() });
+  void addAllergyToCloud(trimmed).catch((e) => console.error("addAllergyToCloud failed", e));
+}
+
+export function removeAllergy(name: string): void {
+  const local = loadProfile();
+  writeLocal({ ...local, allergies: local.allergies.filter((a) => a !== name), updatedAt: Date.now() });
+  void removeAllergyFromCloud(name).catch((e) => console.error("removeAllergyFromCloud failed", e));
+}
+
+/** クラウドの方が新しければローカルへ反映する（Timestampと数値どちらでも比較できるよう正規化） */
 export function mergeProfileFromCloud(cloud: BabyProfile | null): void {
   if (!cloud) return;
   const local = loadProfile();
-  if ((cloud.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
-    writeLocal({ ...empty(), ...cloud });
+  const cloudMillis = toMillis(cloud.updatedAt);
+  if (cloudMillis > (local.updatedAt ?? 0)) {
+    writeLocal({ ...empty(), ...cloud, updatedAt: cloudMillis });
   }
 }

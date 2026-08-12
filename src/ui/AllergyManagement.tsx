@@ -5,25 +5,22 @@ import type { IngredientStatus } from "../domain/types";
 export function AllergyManagement(props: {
   allergies: string[];
   statuses: Record<string, IngredientStatus>;
-  onSaveAllergies: (allergies: string[]) => void;
+  onAddAllergy: (name: string) => void;
+  onRemoveAllergy: (name: string) => void;
   onClose: () => void;
 }) {
-  const { allergies, statuses, onSaveAllergies, onClose } = props;
+  const { allergies, statuses, onAddAllergy, onRemoveAllergy, onClose } = props;
   const [input, setInput] = useState("");
 
   const allergicIngredients = INGREDIENT_MASTER.filter(
     (ing) => statuses[ing.id]?.status === "allergic"
   );
 
-  const addAllergy = () => {
+  const handleAdd = () => {
     const trimmed = input.trim();
-    if (!trimmed || allergies.includes(trimmed)) return;
-    onSaveAllergies([...allergies, trimmed]);
+    if (!trimmed) return;
+    onAddAllergy(trimmed);
     setInput("");
-  };
-
-  const removeAllergy = (name: string) => {
-    onSaveAllergies(allergies.filter((a) => a !== name));
   };
 
   return (
@@ -50,7 +47,7 @@ export function AllergyManagement(props: {
             >
               {a}
               <button
-                onClick={() => removeAllergy(a)}
+                onClick={() => onRemoveAllergy(a)}
                 style={{ border: "none", background: "none", color: "#b91c1c", cursor: "pointer", fontSize: 13 }}
                 title="削除"
               >
@@ -66,9 +63,9 @@ export function AllergyManagement(props: {
             placeholder="例: 卵"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") addAllergy(); }}
+            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
           />
-          <button className="onboarding-btn" onClick={addAllergy}>追加</button>
+          <button className="onboarding-btn" onClick={handleAdd}>追加</button>
         </div>
       </div>
 

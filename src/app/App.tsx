@@ -15,7 +15,10 @@ import {
 } from "../domain/date";
 import { loadAllLogs, STORE_CHANGED_EVENT_NAME, mergeFromCloud } from "../data/localStore";
 import { subscribeToCloud, subscribeProfile, subscribeIngredientStatuses, type SyncStatus } from "../data/cloudSync";
-import { loadProfile, saveProfile, mergeProfileFromCloud, PROFILE_CHANGED_EVENT_NAME } from "../data/profileStore";
+import {
+  loadProfile, saveProfile, addAllergy, removeAllergy,
+  mergeProfileFromCloud, PROFILE_CHANGED_EVENT_NAME,
+} from "../data/profileStore";
 import {
   loadIngredientStatuses,
   setIngredientStatus,
@@ -26,7 +29,7 @@ import { INGREDIENT_MASTER } from "../domain/ingredients";
 import { phaseFromMonths } from "../domain/suggestionEngine";
 import type { DailyLog } from "../domain/types";
 import { Onboarding } from "../ui/Onboarding";
-import { getHouseholdId } from "../lib/householdState";
+import { getHouseholdId, clearHouseholdId } from "../lib/householdState";
 import { useAuthUser } from "../lib/useAuthUser";
 
 type ViewMode = "calendar" | "settings" | "ingredients" | "allergies" | "ai";
@@ -35,8 +38,22 @@ function todayIso(): string {
   return toIso(new Date());
 }
 
-function SyncBadge({ status }: { status: SyncStatus }) {
+function SyncBadge({ status, onRecover }: { status: SyncStatus; onRecover: () => void }) {
   if (status === "synced") return null;
+  if (status === "permission_error") {
+    return (
+      <button
+        onClick={onRecover}
+        style={{
+          fontSize: 11, color: "#dc2626", fontWeight: 600, whiteSpace: "nowrap",
+          border: "1px solid #dc2626", borderRadius: 6, background: "none", padding: "2px 6px", cursor: "pointer",
+        }}
+        title="この端末はこの家族グループのメンバーとして認識されていません。招待コードで再参加してください"
+      >
+        ⚠ 同期エラー・タップして再参加
+      </button>
+    );
+  }
   const label = status === "connecting" ? "同期中…" : "オフライン";
   const color = status === "connecting" ? "#6366f1" : "#f97316";
   return (
@@ -92,21 +109,13 @@ function SettingsScreen(props: {
   weaningStartIso: string;
   allergies: string[];
   householdId: string;
-  onSave: (birthday: string, weaningStart: string, allergies: string[]) => void;
+  onSave: (birthday: string, weaningStart: string) => void;
+  onOpenAllergies: () => void;
   onClose: () => void;
 }) {
   const [birthday, setBirthday] = useState(props.birthdayIso);
   const [weaningStart, setWeaningStart] = useState(props.weaningStartIso);
-  const [allergyInput, setAllergyInput] = useState("");
-  const [allergies, setAllergies] = useState(props.allergies);
   const [copied, setCopied] = useState(false);
-
-  const addAllergy = () => {
-    const trimmed = allergyInput.trim();
-    if (!trimmed || allergies.includes(trimmed)) return;
-    setAllergies([...allergies, trimmed]);
-    setAllergyInput("");
-  };
 
   return (
     <div className="birthday-setup" style={{ gap: 16, textAlign: "left", alignItems: "stretch" }}>
@@ -187,42 +196,18 @@ function SettingsScreen(props: {
       <div className="onboarding-card">
         <div className="onboarding-card-title">🚨 アレルギー食材</div>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
-          AI献立提案で自動的に除外されます。詳しい管理は「アレルギー管理」画面から
+          {props.allergies.length > 0 ? props.allergies.join("、") : "未登録"}
         </p>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
-          {allergies.map((a) => (
-            <span key={a} style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              background: "#fee2e2", color: "#b91c1c", borderRadius: 999, padding: "4px 10px", fontSize: 13,
-            }}>
-              {a}
-              <button
-                onClick={() => setAllergies(allergies.filter((x) => x !== a))}
-                style={{ border: "none", background: "none", color: "#b91c1c", cursor: "pointer" }}
-              >
-                ✕
-              </button>
-            </span>
-          ))}
-        </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            className="birthday-input"
-            style={{ flex: 1 }}
-            placeholder="例: 卵"
-            value={allergyInput}
-            onChange={(e) => setAllergyInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") addAllergy(); }}
-          />
-          <button className="onboarding-btn" onClick={addAllergy}>追加</button>
-        </div>
+        <button className="onboarding-btn" onClick={props.onOpenAllergies}>
+          🚨 アレルギー管理を開く
+        </button>
       </div>
 
       <button
         className="btn-primary"
         disabled={!birthday}
         onClick={() => {
-          props.onSave(birthday, weaningStart, allergies);
+          props.onSave(birthday, weaningStart);
           props.onClose();
         }}
       >
@@ -298,11 +283,19 @@ function MainApp({ householdId }: { householdId: string }) {
   }, [householdId]);
 
   // Firestore リアルタイム同期（プロフィール・食材ステータス）
+  // permission-denied（この端末がmembersに存在しない等）はログ・プランの購読とは
+  // 独立に検知しうるため、こちらのエラーも同じ syncStatus にまとめて反映する。
   useEffect(() => {
-    const unsubProfile = subscribeProfile(householdId, mergeProfileFromCloud);
-    const unsubIngredients = subscribeIngredientStatuses(householdId, mergeIngredientStatusesFromCloud);
+    const unsubProfile = subscribeProfile(householdId, mergeProfileFromCloud, setSyncStatus);
+    const unsubIngredients = subscribeIngredientStatuses(householdId, mergeIngredientStatusesFromCloud, setSyncStatus);
     return () => { unsubProfile(); unsubIngredients(); };
   }, [householdId]);
+
+  const handleSyncRecover = () => {
+    if (!window.confirm("この端末を家族グループから一旦切り離し、招待コードで再参加しますか？（記録データはこの端末に残ります）")) return;
+    clearHouseholdId();
+    window.location.reload();
+  };
 
   const { birthdayIso, weaningStartIso, allergies } = profile;
 
@@ -405,7 +398,8 @@ function MainApp({ householdId }: { householdId: string }) {
         weaningStartIso={weaningStartIso}
         allergies={allergies}
         householdId={householdId}
-        onSave={(b, ws, al) => saveProfile({ birthdayIso: b, weaningStartIso: ws, allergies: al })}
+        onSave={(b, ws) => saveProfile({ birthdayIso: b, weaningStartIso: ws })}
+        onOpenAllergies={() => setView("allergies")}
         onClose={() => setView("calendar")}
       />
     );
@@ -426,7 +420,8 @@ function MainApp({ householdId }: { householdId: string }) {
       <AllergyManagement
         allergies={allergies}
         statuses={ingredientStatuses}
-        onSaveAllergies={(al) => saveProfile({ allergies: al })}
+        onAddAllergy={addAllergy}
+        onRemoveAllergy={removeAllergy}
         onClose={() => setView("calendar")}
       />
     );
@@ -462,7 +457,7 @@ function MainApp({ householdId }: { householdId: string }) {
           <span className="app-title">🍚 離乳食カレンダー</span>
         )}
         <div className="header-right">
-          <SyncBadge status={syncStatus} />
+          <SyncBadge status={syncStatus} onRecover={handleSyncRecover} />
           <span className="phase-badge">
             {phase.label}
             {ageLabel && <> · {ageLabel}</>}

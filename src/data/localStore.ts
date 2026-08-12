@@ -1,5 +1,5 @@
 import type { DailyLog, DailyPlan, MealName, MealLog, FreeEntry } from "../domain/types";
-import { syncLogToCloud, syncPlanToCloud } from "./cloudSync";
+import { syncLogToCloud, syncPlanToCloud, toMillis } from "./cloudSync";
 
 const KEY = "weaning_app_v2"; // v1から変えてOK（安全に移行できる）
 
@@ -155,25 +155,27 @@ export function mergeFromCloud(
   // ---- logs ----
   for (const [dateIso, cloudLog] of Object.entries(cloudLogs)) {
     const local = store.logs[dateIso];
+    const cloudLogMillis = toMillis(cloudLog.updatedAt);
     if (!local) {
-      store.logs[dateIso] = cloudLog;
+      store.logs[dateIso] = { ...cloudLog, updatedAt: cloudLogMillis };
       changed = true;
       continue;
     }
-    // meal 単位でマージ
+    // meal 単位でマージ（Timestamp/数値どちらでも比較できるよう正規化）
     const mergedMeals = { ...local.meals };
     let mealChanged = false;
     for (const [key, cloudMeal] of Object.entries(cloudLog.meals)) {
       const mealName = key as MealName;
       const localMeal = local.meals[mealName];
-      if (!localMeal || (cloudMeal?.updatedAt ?? 0) > (localMeal?.updatedAt ?? 0)) {
-        mergedMeals[mealName] = cloudMeal as MealLog;
+      const cloudMealMillis = toMillis(cloudMeal?.updatedAt);
+      if (!localMeal || cloudMealMillis > (localMeal?.updatedAt ?? 0)) {
+        mergedMeals[mealName] = { ...(cloudMeal as MealLog), updatedAt: cloudMealMillis };
         mealChanged = true;
       }
     }
     // dayMemo: 更新日時が新しい方
     let dayMemo = local.dayMemo;
-    if (cloudLog.dayMemo !== undefined && (cloudLog.updatedAt ?? 0) > (local.updatedAt ?? 0)) {
+    if (cloudLog.dayMemo !== undefined && cloudLogMillis > (local.updatedAt ?? 0)) {
       dayMemo = cloudLog.dayMemo;
       mealChanged = true;
     }
@@ -182,7 +184,7 @@ export function mergeFromCloud(
         ...local,
         meals: mergedMeals,
         dayMemo,
-        updatedAt: Math.max(local.updatedAt ?? 0, cloudLog.updatedAt ?? 0),
+        updatedAt: Math.max(local.updatedAt ?? 0, cloudLogMillis),
       };
       changed = true;
     }

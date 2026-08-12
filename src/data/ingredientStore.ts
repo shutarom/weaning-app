@@ -1,5 +1,5 @@
 import type { IngredientStatus, IngredientStatusValue } from "../domain/types";
-import { syncIngredientStatusToCloud } from "./cloudSync";
+import { syncIngredientStatusToCloud, toMillis } from "./cloudSync";
 
 const KEY = "weaning_ingredient_status_v1";
 
@@ -42,14 +42,15 @@ export function setIngredientStatus(
   );
 }
 
-/** meal単位と同様、updatedAtが新しい方を採用してマージする */
+/** meal単位と同様、updatedAtが新しい方を採用してマージする（Timestamp/数値を正規化して比較） */
 export function mergeIngredientStatusesFromCloud(cloud: Record<string, IngredientStatus>): void {
   const local = readAll();
   let changed = false;
   for (const [id, cloudEntry] of Object.entries(cloud)) {
     const localEntry = local[id];
-    if (!localEntry || (cloudEntry.updatedAt ?? 0) > (localEntry.updatedAt ?? 0)) {
-      local[id] = cloudEntry;
+    const cloudMillis = toMillis(cloudEntry.updatedAt);
+    if (!localEntry || cloudMillis > (localEntry.updatedAt ?? 0)) {
+      local[id] = { ...cloudEntry, updatedAt: cloudMillis };
       changed = true;
     }
   }
