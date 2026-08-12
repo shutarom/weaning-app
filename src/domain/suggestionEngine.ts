@@ -78,6 +78,7 @@ function candidatesFor(
   const ingredientCategory = FOOD_CATEGORY_TO_INGREDIENT_CATEGORY[foodCategory];
   return INGREDIENT_MASTER.filter((ing) => {
     if (ing.category !== ingredientCategory) return false;
+    if (ing.neverSuggest) return false;
     if (!ing.stageForms[phaseKey]) return false;
     if (ing.allergens.some((a) => allergenTags.includes(a))) return false;
     if (ingredientStatuses[ing.id]?.status === "allergic") return false;

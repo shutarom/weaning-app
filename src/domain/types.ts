@@ -79,6 +79,11 @@ export type Ingredient = {
   allergens: Allergen[];
   // ステージ別の形状・調理法（未定義のステージでは登場させない食材もあるため optional）
   stageForms: Partial<Record<PhaseKey, string>>;
+  // true の場合、食材チェック・印刷記録には出るが日次提案(generateSuggestion)では
+  // 自動的に提案しない。えび・かに・そば・くるみのように離乳食期には積極的に
+  // 勧められない食材や、ごま・きな粉のように「ひとつまみ」レベルの薬味であって
+  // 主菜1食分(20〜40g)として提案するのが不適切な食材に使う。
+  neverSuggest?: boolean;
 };
 
 export type IngredientStatusValue = "not_tried" | "safe" | "allergic";

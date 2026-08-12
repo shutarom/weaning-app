@@ -58,6 +58,17 @@ export const INGREDIENT_MASTER: Ingredient[] = [
     },
   },
   {
+    // そばアレルギーは症状が重篤化しやすい食材として知られ、厚労省ガイドも
+    // 月齢を明示していない。1歳〜1歳半以降が目安とされるため、離乳食完了期の
+    // 中でも遅め。日次提案には出さず、食材チェック・アレルギー記録用に用意する。
+    id: "soba", name: "そば (蕎麦)", category: "carb", earliestStage: "12_18",
+    allergens: ["buckwheat"],
+    neverSuggest: true,
+    stageForms: {
+      "12_18": "よく茹でて短く刻む（平日の午前中など受診しやすい時間に少量から）",
+    },
+  },
+  {
     id: "satsumaimo", name: "さつまいも", category: "carb", earliestStage: "5_6",
     allergens: [],
     stageForms: {
@@ -178,6 +189,198 @@ export const INGREDIENT_MASTER: Ingredient[] = [
       "12_18": "手づかみしやすい大きさに切る",
     },
   },
+  {
+    id: "nasu", name: "なす", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "皮をむきアク抜きしてよく加熱し2〜3mm角につぶし残す",
+      "9_11": "皮をむきよく加熱して5〜8mm角",
+      "12_18": "よく加熱して1cm角",
+    },
+  },
+  {
+    id: "piiman", name: "ピーマン", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "種とわたを除きよく加熱して2〜3mm角",
+      "9_11": "種とわたを除きよく加熱して5〜8mm角",
+      "12_18": "種とわたを除きよく加熱して1cm角",
+    },
+  },
+  {
+    id: "paprika", name: "パプリカ", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "皮と種を除きよく加熱して2〜3mm角",
+      "9_11": "皮と種を除きよく加熱して5〜8mm角",
+      "12_18": "皮と種を除きよく加熱して1cm角",
+    },
+  },
+  {
+    id: "kyuuri", name: "きゅうり", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "皮をむいてすりおろすか加熱してなめらかにする",
+      "7_8": "皮をむき薄切りにしてやわらかく茹でる",
+      "9_11": "皮をむき5〜8mm角（加熱するとより安心）",
+      "12_18": "皮をむき1cm角（生でも可）",
+    },
+  },
+  {
+    id: "renkon", name: "れんこん", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": "皮をむきやわらかく茹でてすりおろすか5〜8mm角",
+      "12_18": "皮をむきやわらかく茹でて1cm角",
+    },
+  },
+  {
+    id: "gobo", name: "ごぼう", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": "アク抜きしてやわらかく茹ですりおろすか5〜8mm角",
+      "12_18": "アク抜きしてやわらかく茹でて1cm角",
+    },
+  },
+  {
+    id: "satoimo", name: "さといも", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "皮をむき茹でてなめらかにマッシュ（ぬめりは取り除く）",
+      "7_8": "皮をむき茹でて2〜3mm角につぶし残す",
+      "9_11": "皮をむき茹でて5〜8mm角",
+      "12_18": "皮をむき茹でて1cm角",
+    },
+  },
+  {
+    id: "okura", name: "オクラ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": "産毛を取り除きやわらかく茹でて小さく刻む（種が多ければ除く）",
+      "12_18": "産毛を取り除きやわらかく茹でて小口切り",
+    },
+  },
+  {
+    id: "toumorokoshi", name: "とうもろこし", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "やわらかく茹でて薄皮を除き裏ごししたポタージュ状",
+      "7_8": "やわらかく茹でて薄皮を除き粗くつぶす",
+      "9_11": "やわらかく茹でて粒のまま(薄皮は気になれば除く)",
+      "12_18": "やわらかく茹でてそのまま",
+    },
+  },
+  {
+    id: "komatsuna", name: "小松菜", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "やわらかく茹でて葉先を裏ごし",
+      "7_8": "やわらかく茹でて2〜3mmに刻む",
+      "9_11": "やわらかく茹でて5〜8mmに刻む",
+      "12_18": "やわらかく茹でて1cm幅に刻む",
+    },
+  },
+  {
+    id: "asparagus", name: "アスパラガス", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "穂先を中心にやわらかく茹でて2〜3mmに刻む",
+      "9_11": "皮の固い部分を除きやわらかく茹でて5〜8mmに刻む",
+      "12_18": "皮の固い部分を除きやわらかく茹でて1cm幅",
+    },
+  },
+  {
+    id: "serori", name: "セロリ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": "筋を取りよく加熱して香りを弱め5〜8mm角",
+      "12_18": "筋を取りよく加熱して1cm角",
+    },
+  },
+  {
+    id: "shimeji", name: "しめじ (きのこ類)", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": "石づきを除きやわらかく茹でてみじん切り",
+      "12_18": "石づきを除きやわらかく茹でて小さくほぐす",
+    },
+  },
+  {
+    id: "edamame", name: "枝豆 (大豆)", category: "vitamin", earliestStage: "7_8",
+    allergens: ["soy"],
+    stageForms: {
+      "7_8": "薄皮を除きやわらかく茹でてつぶす",
+      "9_11": "薄皮を除きやわらかく茹でて粗くつぶす",
+      "12_18": "薄皮を除きやわらかく茹でて刻む",
+    },
+  },
+  {
+    id: "ichigo", name: "いちご", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "加熱して種と繊維が気にならないよう裏ごし",
+      "7_8": "加熱してつぶす",
+      "9_11": "生のまま粗くつぶすか5〜8mm角",
+      "12_18": "生のままへたを取り食べやすい大きさに切る",
+    },
+  },
+  {
+    id: "mikan", name: "みかん", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "皮と薄皮・筋を除き実をなめらかにつぶす（酸味が気になれば加熱）",
+      "7_8": "皮と薄皮を除き実を粗くつぶす",
+      "9_11": "皮と薄皮を除き食べやすい大きさにほぐす",
+      "12_18": "皮と薄皮を除き小房のまま",
+    },
+  },
+  {
+    id: "momo", name: "もも", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": "皮をむきなめらかにつぶす",
+      "7_8": "皮をむき粗くつぶす",
+      "9_11": "皮をむき5〜8mm角",
+      "12_18": "皮をむき1cm角",
+    },
+  },
+  {
+    id: "nashi", name: "なし", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "皮をむきすりおろすか加熱してつぶす",
+      "9_11": "皮をむき5〜8mm角（加熱するとより安心）",
+      "12_18": "皮をむき1cm角（生でも可）",
+    },
+  },
+  {
+    id: "suika", name: "すいか", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "種を除きなめらかにつぶす",
+      "9_11": "種を除き5〜8mm角",
+      "12_18": "種を除き1cm角",
+    },
+  },
+  {
+    id: "melon", name: "メロン", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": "種とわたを除きなめらかにつぶす",
+      "9_11": "種とわたを除き5〜8mm角",
+      "12_18": "種とわたを除き1cm角",
+    },
+  },
+  {
+    // 特定原材料等28品目の一つ。口腔アレルギー症候群(OAS)の原因になりやすい果物として
+    // 知られるため後期からとし、念のため加熱して与える形にする。
+    id: "kiwi", name: "キウイ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": "皮をむき加熱してつぶす（口腔アレルギー症状に注意し少量から）",
+      "12_18": "皮をむき加熱して1cm角（生は少量から慎重に）",
+    },
+  },
 
   // ===== タンパク質 =====
   {
@@ -193,6 +396,9 @@ export const INGREDIENT_MASTER: Ingredient[] = [
   {
     id: "kinako", name: "きな粉 (大豆)", category: "protein", earliestStage: "7_8",
     allergens: ["soy"],
+    // 「ひとつまみ」レベルの薬味であり、主菜1食分(20〜40g)として提案するのは不適切なため
+    // 日次提案の対象からは外す（食材チェックでの記録用途では使う）。
+    neverSuggest: true,
     stageForms: {
       "7_8": "おかゆやペーストにひとつまみ混ぜる",
       "9_11": "ヨーグルトやおやきに混ぜる",
@@ -291,6 +497,46 @@ export const INGREDIENT_MASTER: Ingredient[] = [
     allergens: [],
     stageForms: {
       "12_18": "よく加熱し脂を落としてそぼろ状・団子状",
+    },
+  },
+  {
+    id: "goma", name: "ごま", category: "protein", earliestStage: "9_11",
+    allergens: ["sesame"],
+    // 「耳かき1さじ」レベルの薬味であり、主菜1食分として提案するのは不適切なため
+    // 日次提案の対象からは外す（食材チェックでの記録用途では使う）。
+    neverSuggest: true,
+    stageForms: {
+      "9_11": "すりごま・ねりごまをごく少量（耳かき1さじから）料理に混ぜる",
+      "12_18": "すりごま・ねりごまを少量ふりかける",
+    },
+  },
+  {
+    // 甲殻類アレルギーは重篤化しやすく、離乳食期(〜18ヶ月)に積極的に
+    // 与える必要は無いとされる食材。食材チェック・アレルギー記録用に用意する。
+    id: "ebi", name: "えび", category: "protein", earliestStage: "12_18",
+    allergens: ["shrimp"],
+    neverSuggest: true,
+    stageForms: {
+      "12_18": "よく加熱し殻と背わたを除き細かく刻む（無理に急いで与える必要はない）",
+    },
+  },
+  {
+    id: "kani", name: "かに", category: "protein", earliestStage: "12_18",
+    allergens: ["crab"],
+    neverSuggest: true,
+    stageForms: {
+      "12_18": "よく加熱しほぐし身を細かくほぐす（無理に急いで与える必要はない）",
+    },
+  },
+  {
+    // 誤嚥防止のため必ずペースト・パウダー状で。粒や刻んだものは厳禁。
+    // 早期導入に関する研究はあるが国内では明確には推奨されておらず、
+    // 既往症(アトピー等)がある場合は必ず医師の指導のもとで行う。
+    id: "kurumi", name: "くるみ (ナッツ類)", category: "protein", earliestStage: "12_18",
+    allergens: ["walnut"],
+    neverSuggest: true,
+    stageForms: {
+      "12_18": "必ずペースト状にしてごく少量から（粒・刻んだものは誤嚥の危険があり厳禁）",
     },
   },
 

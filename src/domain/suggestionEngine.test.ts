@@ -55,6 +55,25 @@ describe("generateSuggestion — アレルゲン除外", () => {
   });
 });
 
+describe("generateSuggestion — neverSuggest食材の除外", () => {
+  it("neverSuggest: trueの食材(ごま・えび・かに・そば・くるみ等)は月齢に関わらず提案されない", () => {
+    const neverSuggestIds = new Set(
+      INGREDIENT_MASTER.filter((i) => i.neverSuggest).map((i) => i.id)
+    );
+    expect(neverSuggestIds.size).toBeGreaterThan(0);
+
+    for (const ageMonths of [5, 8, 10, 15]) {
+      for (let day = 1; day <= 15; day++) {
+        const dateIso = `2026-04-${String(day).padStart(2, "0")}`;
+        const plan = generateSuggestion({ dateIso, ageMonths, recentLogs: [] });
+        for (const id of allIngredientIdsInPlan(plan)) {
+          expect(neverSuggestIds.has(id)).toBe(false);
+        }
+      }
+    }
+  });
+});
+
 describe("generateSuggestion — 月齢に応じた食材制限", () => {
   it("初期(5-6ヶ月)には小麦・大豆・卵・魚などまだ早い食材が出ない", () => {
     for (let day = 1; day <= 20; day++) {
