@@ -1,7 +1,13 @@
 import { useMemo, useState } from "react";
 import { createHousehold, joinHousehold } from "../lib/household";
 import { clearHouseholdId, getHouseholdId, setHouseholdId } from "../lib/householdState";
-import { getDeviceId } from "../lib/deviceId";
+import { auth } from "../lib/firebase";
+
+function requireUid(): string {
+  const uid = auth.currentUser?.uid;
+  if (!uid) throw new Error("認証に失敗しました。通信環境を確認して再読み込みしてください");
+  return uid;
+}
 
 export function Onboarding(props: { onReady: (hid: string) => void }) {
   const savedHid = useMemo(() => getHouseholdId(), []);
@@ -121,7 +127,7 @@ export function Onboarding(props: { onReady: (hid: string) => void }) {
               setError(null);
               setBusy(true);
               try {
-                const uid = getDeviceId();
+                const uid = requireUid();
                 const hid = await createHousehold(uid);
                 setHouseholdId(hid);
                 setCreatedHid(hid);
@@ -157,7 +163,7 @@ export function Onboarding(props: { onReady: (hid: string) => void }) {
               setError(null);
               setBusy(true);
               try {
-                const uid = getDeviceId();
+                const uid = requireUid();
                 const hid = await joinHousehold(invite, uid);
                 setHouseholdId(hid);
                 props.onReady(hid);

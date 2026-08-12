@@ -16,6 +16,7 @@ import { phaseFromMonths } from "../domain/suggestionEngine";
 import type { DailyLog } from "../domain/types";
 import { Onboarding } from "../ui/Onboarding";
 import { getHouseholdId } from "../lib/householdState";
+import { useAuthUser } from "../lib/useAuthUser";
 
 const BIRTHDAY_KEY = "weaning_birthday";
 const WEANING_START_KEY = "weaning_start_date";
@@ -161,7 +162,18 @@ function SettingsScreen(props: {
 }
 
 export default function App() {
+  const { loading: authLoading } = useAuthUser();
   const [householdId, setHouseholdId] = useState<string | null>(() => getHouseholdId());
+
+  // Firestoreルールが request.auth を要求するため、匿名認証の解決を待ってから
+  // household作成/参加やクラウド同期を試みる（未解決のまま呼ぶと permission-denied になる）。
+  if (authLoading) {
+    return (
+      <div className="onboarding">
+        <p className="hint-text">読み込み中…</p>
+      </div>
+    );
+  }
   if (!householdId) {
     return <Onboarding onReady={(hid) => setHouseholdId(hid)} />;
   }

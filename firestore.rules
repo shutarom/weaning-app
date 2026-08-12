@@ -24,6 +24,9 @@ service cloud.firestore {
         allow read: if isMember(hid);
         // 自分自身のメンバードキュメントのみ作成可能。
         // role: 'owner' を名乗れるのは households/{hid}.ownerUid が自分の場合のみ。
+        // role: 'member' での参加(招待コード=hidを知っていれば参加可能)はクライアントから
+        // 直接行う。期限・使用回数の制限は設けていない（Cloud Functionsが必要になるため
+        // 今回は見送り。hidはランダム40bit相当で総当たりは非現実的という前提）。
         allow create: if isSignedIn() && request.auth.uid == uid &&
           (
             (request.resource.data.role == 'owner' &&
