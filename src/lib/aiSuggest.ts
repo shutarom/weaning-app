@@ -14,8 +14,13 @@ function buildPrompt(params: {
   safeIngredients: string[];
   notTriedIngredients: string[];
   fridgeIngredients: string[];
+  likedIngredients: string[];
+  dislikedIngredients: string[];
 }): string {
-  const { ageMonths, phase, allergies, safeIngredients, notTriedIngredients, fridgeIngredients } = params;
+  const {
+    ageMonths, phase, allergies, safeIngredients, notTriedIngredients, fridgeIngredients,
+    likedIngredients, dislikedIngredients,
+  } = params;
   const join = (list: string[]) => (list.length ? list.join(", ") : "なし");
 
   return `
@@ -28,6 +33,8 @@ function buildPrompt(params: {
 - クリア済み安全食材: ${join(safeIngredients)}
 - 未試行の食材リスト: ${join(notTriedIngredients)}
 - 冷蔵庫にある使いたい食材: ${join(fridgeIngredients)}
+- 直近よく食べている（好きな）食材: ${join(likedIngredients)}
+- 直近食べ残しが多い（苦手な）食材: ${join(dislikedIngredients)}
 
 【レシピ提案ルール】
 1. 指定されたステージに適した食材の大きさ、硬さ、調理法にしてください。
@@ -39,6 +46,7 @@ function buildPrompt(params: {
 3. すでに安全とわかっている食材、または冷蔵庫にある食材を組み合わせてください。
 4. 新しい食材を試したい場合は「未試行の食材リスト」から【最大1種類のみ】を少量含めることができます。どの新食材を含めたかをレシピのポイントに明記してください。
 5. 味付けは基本的に極薄味（ステージ初期〜中期は出汁やスープのみ、後期・完了期は醤油や塩を数滴程度）にしてください。
+6. 「好きな食材」は積極的に使ってください。「苦手な食材」はできるだけ避け、使う場合は味や食感を工夫してレシピのポイントに理由を書いてください（安全上の除外ではなく好みの話なので、代替がなければ少量使っても構いません）。
 
 【返却フォーマット】
 以下のJSONフォーマットで出力してください。その他の説明テキストは一切含めないでください。
@@ -75,6 +83,8 @@ export async function suggestMenu(params: {
   safeIngredients: string[];
   notTriedIngredients: string[];
   fridgeIngredients: string[];
+  likedIngredients: string[];
+  dislikedIngredients: string[];
 }): Promise<AiSuggestionResult> {
   const prompt = buildPrompt(params);
   const result = await model.generateContent(prompt);

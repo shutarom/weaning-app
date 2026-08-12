@@ -1,7 +1,12 @@
 import type { DailyLog, DailyPlan, MealName, MealLog, FreeEntry } from "../domain/types";
 import { syncLogToCloud, syncPlanToCloud, toMillis } from "./cloudSync";
+import { PLAN_SCHEMA_VERSION } from "../domain/suggestionEngine";
+import { getBabyId } from "../lib/babyState";
 
-const KEY = "weaning_app_v2"; // v1から変えてOK（安全に移行できる）
+// 赤ちゃんごとにローカルの記録を分離する（babyIdが未確定の間は使われない想定）。
+function storageKey(): string {
+  return `weaning_app_v2:${getBabyId() ?? "_"}`;
+}
 
 // ✅ store更新通知（App/Calendarがこれを受けて即時再描画）
 export const STORE_CHANGED_EVENT_NAME = "weaning_store_changed";
@@ -21,7 +26,7 @@ function empty(): StoreShape {
 
 function readStore(): StoreShape {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storageKey());
     if (!raw) return empty();
     const parsed = JSON.parse(raw) as Partial<StoreShape>;
     return {
@@ -34,7 +39,7 @@ function readStore(): StoreShape {
 }
 
 function writeStore(store: StoreShape): void {
-  localStorage.setItem(KEY, JSON.stringify(store));
+  localStorage.setItem(storageKey(), JSON.stringify(store));
   notifyStoreChanged();
 }
 
@@ -112,11 +117,18 @@ export function upsertPlan(plan: DailyPlan): void {
   void syncPlanToCloud(plan.dateIso, plans[plan.dateIso]).catch((e) => console.error("syncPlanToCloud failed", e));
 }
 
-/** 既存planがあれば返し、なければfactoryで生成→保存して返す */
+/**
+ * 既存planがあれば返し、なければfactoryで生成→保存して返す。
+ * ただし当日・未来日について、安全フィルタ(アレルゲン・月齢)を含む
+ * ロジックが更新されている(version < PLAN_SCHEMA_VERSION)場合は、
+ * 記録として確定していないため破棄して作り直す。過去日は実績と対になる
+ * 提案内容を変えないため対象外にする。
+ */
 export function getOrCreatePlan(dateIso: string, factory: () => DailyPlan): DailyPlan {
   const store = readStore();
   const existing = store.plans[dateIso];
-  if (existing) return existing;
+  const isStale = existing && existing.version < PLAN_SCHEMA_VERSION && dateIso >= toIso(new Date());
+  if (existing && !isStale) return existing;
 
   const plan = factory();
   store.plans[dateIso] = plan;
@@ -124,7 +136,7 @@ export function getOrCreatePlan(dateIso: string, factory: () => DailyPlan): Dail
 
   // 新規生成時はクラウドにも保存
   void syncPlanToCloud(dateIso, store.plans[dateIso]).catch((e) => console.error("syncPlanToCloud failed", e));
-  
+
   return plan;
 }
 
@@ -199,7 +211,7 @@ export function mergeFromCloud(
   }
 
   if (changed) {
-    localStorage.setItem(KEY, JSON.stringify(store));
+    localStorage.setItem(storageKey(), JSON.stringify(store));
     notifyStoreChanged();
   }
 }

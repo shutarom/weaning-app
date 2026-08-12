@@ -1,5 +1,5 @@
 import { useMemo, useReducer, useRef, useState } from "react";
-import type { DailyLog, DailyPlan, FreeEntry, MealName } from "../domain/types";
+import type { Allergen, DailyLog, DailyPlan, FreeEntry, IngredientStatus, MealName } from "../domain/types";
 import { generateSuggestion } from "../domain/suggestionEngine";
 import {
   addFreeEntry,
@@ -148,15 +148,22 @@ function FreeEntrySection({
 }
 
 // ===== メインコンポーネント =====
-export function DayDetail(props: { dateIso: string; ageMonths: number }) {
-  const { dateIso, ageMonths } = props;
+export function DayDetail(props: {
+  dateIso: string;
+  ageMonths: number;
+  allergenTags: Allergen[];
+  ingredientStatuses: Record<string, IngredientStatus>;
+}) {
+  const { dateIso, ageMonths, allergenTags, ingredientStatuses } = props;
 
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
 
   const makePlan = () => {
     const recentLogs  = getRecentLogs(dateIso, 14);
     const recentPlans = getRecentPlans(dateIso, 14);
-    return generateSuggestion({ dateIso, ageMonths, recentLogs, recentPlans });
+    return generateSuggestion({
+      dateIso, ageMonths, recentLogs, recentPlans, allergenTags, ingredientStatuses,
+    });
   };
 
   const [plan, setPlan] = useState<DailyPlan>(() =>
@@ -166,7 +173,7 @@ export function DayDetail(props: { dateIso: string; ageMonths: number }) {
   useMemo(() => {
     setPlan(getOrCreatePlan(dateIso, makePlan));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateIso, ageMonths]);
+  }, [dateIso, ageMonths, allergenTags, ingredientStatuses]);
 
   const log = (): DailyLog | undefined => getLog(dateIso);
 

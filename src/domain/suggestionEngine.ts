@@ -1,6 +1,15 @@
-import type { DailyLog, DailyPlan, MealName, Phase, PhaseKey, FoodCategory, PlanItem } from "./types";
+import type {
+  Allergen, DailyLog, DailyPlan, MealName, Phase, PhaseKey,
+  FoodCategory, PlanItem, Ingredient, IngredientStatus,
+} from "./types";
+import { INGREDIENT_MASTER } from "./ingredients";
 
 const MEALS: MealName[] = ["朝", "昼", "夕"];
+
+// プラン生成ロジックの世代番号。安全フィルタ(アレルゲン・月齢)に関わる変更を
+// 加えたときは必ず上げる。getOrCreatePlan はこの番号より古い未来日/当日プランを
+// 破棄して再生成する（過去日は実績記録として保持するため対象外）。
+export const PLAN_SCHEMA_VERSION = 3;
 
 export function phaseFromMonths(m: number): Phase {
   if (m <= 5) return { key: "5_6",   label: "初期(5-6ヶ月)" };
@@ -22,13 +31,12 @@ const BASE_GUIDE: Record<PhaseKey, Guide> = {
   "12_18": { mealsPerDay: 3, categories: { staple: 100, veg: 60, protein: 40 }, note: "大人食へ近づけつつ無理はしない。" },
 };
 
-const FOOD = {
-  staple:  ["10倍がゆ", "7倍がゆ", "軟飯", "うどん(やわ)", "食パン(ふやかし)", "さつまいもマッシュ", "オートミール粥", "そうめん(やわ)"],
-  veg:     ["にんじん", "かぼちゃ", "ほうれん草", "ブロッコリー", "トマト", "大根", "玉ねぎ(よく加熱)", "さつまいも", "じゃがいも", "小松菜", "なす", "ズッキーニ"],
-  protein: ["豆腐", "白身魚", "しらす(塩抜き)", "鶏ささみ", "ヨーグルト", "卵黄(慣れてから)", "納豆(刻む)", "鶏ひき肉", "きな粉"],
-} as const;
-
-const COOK = ["ペースト", "つぶし", "みじん切り＋とろみ", "だし煮", "蒸してやわらかく", "スープ"] as const;
+// 提案カテゴリ(staple/veg/protein) → 食材マスターのカテゴリ
+const FOOD_CATEGORY_TO_INGREDIENT_CATEGORY: Record<FoodCategory, Ingredient["category"]> = {
+  staple: "carb",
+  veg: "vitamin",
+  protein: "protein",
+};
 
 // ===== Seeded RNG =====
 function xmur3(str: string) {
@@ -57,6 +65,26 @@ function seededRand(seedStr: string) {
   return { seed, rand: mulberry32(seed) };
 }
 
+// ===== 安全な候補の絞り込み =====
+// stageForms にそのステージのキーが無い食材は「まだ早い」または「もう卒業した」ものとして
+// 自動的に除外される（earliestStage の下限チェックと、がゆの精製度のような
+// 上限チェックの両方をこの1条件でまかなう）。
+function candidatesFor(
+  foodCategory: FoodCategory,
+  phaseKey: PhaseKey,
+  allergenTags: Allergen[],
+  ingredientStatuses: Record<string, IngredientStatus>
+): Ingredient[] {
+  const ingredientCategory = FOOD_CATEGORY_TO_INGREDIENT_CATEGORY[foodCategory];
+  return INGREDIENT_MASTER.filter((ing) => {
+    if (ing.category !== ingredientCategory) return false;
+    if (!ing.stageForms[phaseKey]) return false;
+    if (ing.allergens.some((a) => allergenTags.includes(a))) return false;
+    if (ingredientStatuses[ing.id]?.status === "allergic") return false;
+    return true;
+  });
+}
+
 // ===== 食材スコア分析 =====
 // 直近のログとプランをクロスさせ、食材ごとの平均食べた割合を算出する
 type FoodScore = { totalRatio: number; count: number };
@@ -76,10 +104,10 @@ export function calcFoodScores(
       if (!mlog || typeof mlog.eatenRatio !== "number") continue;
 
       for (const item of meal.items) {
-        // food名はスペース前まで（"にんじん（だし煮）" → "にんじん"）
-        const foodName = item.text.split("（")[0].split("(")[0].trim();
-        const cur = scores.get(foodName) ?? { totalRatio: 0, count: 0 };
-        scores.set(foodName, {
+        // 旧バージョン(ingredientIdを持たない)のプランはスコア集計の対象外にする
+        if (!item.ingredientId) continue;
+        const cur = scores.get(item.ingredientId) ?? { totalRatio: 0, count: 0 };
+        scores.set(item.ingredientId, {
           totalRatio: cur.totalRatio + mlog.eatenRatio,
           count: cur.count + 1,
         });
@@ -93,9 +121,9 @@ export function calcFoodScores(
 // 苦手食材（2回以上記録 かつ 平均 < 0.35）
 function getDislikedFoods(scores: Map<string, FoodScore>): Set<string> {
   const disliked = new Set<string>();
-  for (const [food, s] of scores) {
+  for (const [id, s] of scores) {
     if (s.count >= 2 && s.totalRatio / s.count < 0.35) {
-      disliked.add(food);
+      disliked.add(id);
     }
   }
   return disliked;
@@ -104,30 +132,47 @@ function getDislikedFoods(scores: Map<string, FoodScore>): Set<string> {
 // 好き食材（2回以上記録 かつ 平均 > 0.8）
 function getLikedFoods(scores: Map<string, FoodScore>): Set<string> {
   const liked = new Set<string>();
-  for (const [food, s] of scores) {
+  for (const [id, s] of scores) {
     if (s.count >= 2 && s.totalRatio / s.count > 0.8) {
-      liked.add(food);
+      liked.add(id);
     }
   }
   return liked;
 }
 
-// 重み付き選択：苦手は除外、好きは優先
-function pickWeighted<T extends string>(
-  arr: readonly T[],
+/**
+ * 直近の実績から好き・苦手な食材名を算出する。カレンダーの日次提案(generateSuggestion)
+ * だけでなく、AI献立提案のプロンプトにも同じ学習結果を反映するために公開している。
+ */
+export function summarizePreferences(
+  recentLogs: DailyLog[],
+  recentPlans: DailyPlan[]
+): { liked: string[]; disliked: string[] } {
+  const scores = calcFoodScores(recentLogs, recentPlans);
+  const idToName = new Map(INGREDIENT_MASTER.map((i) => [i.id, i.name]));
+  return {
+    liked: [...getLikedFoods(scores)].map((id) => idToName.get(id) ?? id),
+    disliked: [...getDislikedFoods(scores)].map((id) => idToName.get(id) ?? id),
+  };
+}
+
+// 重み付き選択：苦手は除外、好きは優先。候補が空なら undefined を返す
+// （多重アレルギー等でカテゴリの候補が全滅した場合に備えたガード）。
+function pickWeighted(
+  candidates: Ingredient[],
   rand: () => number,
   liked: Set<string>,
   disliked: Set<string>
-): T {
-  // 苦手を除いた候補
-  const candidates = arr.filter((f) => !disliked.has(f));
-  const pool = candidates.length > 0 ? candidates : [...arr];
+): Ingredient | undefined {
+  if (candidates.length === 0) return undefined;
 
-  // 好きな食材を2倍の確率で選ぶ
-  const weighted: T[] = [];
-  for (const f of pool) {
-    weighted.push(f);
-    if (liked.has(f)) weighted.push(f);
+  const preferred = candidates.filter((ing) => !disliked.has(ing.id));
+  const pool = preferred.length > 0 ? preferred : candidates;
+
+  const weighted: Ingredient[] = [];
+  for (const ing of pool) {
+    weighted.push(ing);
+    if (liked.has(ing.id)) weighted.push(ing);
   }
 
   return weighted[Math.floor(rand() * weighted.length)];
@@ -154,8 +199,8 @@ function calcAdjustFactor(recentLogs: DailyLog[], days = 7): number {
 // ===== インサイト文章生成 =====
 function buildInsight(
   adj: number,
-  disliked: Set<string>,
-  liked: Set<string>,
+  dislikedNames: string[],
+  likedNames: string[],
   logCount: number
 ): string {
   const parts: string[] = [];
@@ -172,11 +217,11 @@ function buildInsight(
     parts.push("ちょうどよい量で食べています");
   }
 
-  if (disliked.size > 0) {
-    parts.push(`${[...disliked].slice(0, 2).join("・")}は苦手な様子のため控えています`);
+  if (dislikedNames.length > 0) {
+    parts.push(`${dislikedNames.slice(0, 2).join("・")}は苦手な様子のため控えています`);
   }
-  if (liked.size > 0) {
-    parts.push(`${[...liked].slice(0, 2).join("・")}はよく食べるため優先しています`);
+  if (likedNames.length > 0) {
+    parts.push(`${likedNames.slice(0, 2).join("・")}はよく食べるため優先しています`);
   }
 
   return parts.join("。");
@@ -188,8 +233,13 @@ export function generateSuggestion(params: {
   ageMonths: number;
   recentLogs: DailyLog[];
   recentPlans?: DailyPlan[];
+  allergenTags?: Allergen[];
+  ingredientStatuses?: Record<string, IngredientStatus>;
 }): DailyPlan {
-  const { dateIso, ageMonths, recentLogs, recentPlans = [] } = params;
+  const {
+    dateIso, ageMonths, recentLogs, recentPlans = [],
+    allergenTags = [], ingredientStatuses = {},
+  } = params;
 
   const phase = phaseFromMonths(ageMonths);
   const guide = BASE_GUIDE[phase.key];
@@ -210,30 +260,48 @@ export function generateSuggestion(params: {
   const activeMeals = MEALS.slice(0, guide.mealsPerDay);
   const itemsPerMeal = phase.key === "5_6" ? 2 : 3;
 
+  const stapleCandidates  = candidatesFor("staple",  phase.key, allergenTags, ingredientStatuses);
+  const vegCandidates     = candidatesFor("veg",     phase.key, allergenTags, ingredientStatuses);
+  const proteinCandidates = candidatesFor("protein", phase.key, allergenTags, ingredientStatuses);
+
   const meals = activeMeals.map((name) => {
-    const staple  = pickWeighted(FOOD.staple,  rand, liked, disliked);
-    const veg     = pickWeighted(FOOD.veg,     rand, liked, disliked);
-    const protein = pickWeighted(FOOD.protein, rand, liked, disliked);
-    const cook    = COOK[Math.floor(rand() * COOK.length)];
+    const staple  = pickWeighted(stapleCandidates,  rand, liked, disliked);
+    const veg     = pickWeighted(vegCandidates,     rand, liked, disliked);
+    const protein = itemsPerMeal >= 3 ? pickWeighted(proteinCandidates, rand, liked, disliked) : undefined;
 
     const wobble = 0.9 + rand() * 0.2;
     const stapleG  = Math.round(guide.categories.staple  * adj * wobble);
     const vegG     = Math.round(guide.categories.veg     * adj * wobble);
     const proteinG = Math.round(guide.categories.protein * adj * wobble);
 
-    const items: PlanItem[] = [
-      { cat: "staple",  text: `${staple}（${cook}）`,  grams: stapleG },
-      { cat: "veg",     text: `${veg}（${cook}）`,     grams: vegG },
-    ];
-    if (itemsPerMeal >= 3) {
-      items.push({ cat: "protein", text: `${protein}（${cook}）`, grams: proteinG });
+    const items: PlanItem[] = [];
+    if (staple) {
+      items.push({
+        cat: "staple", ingredientId: staple.id,
+        text: `${staple.name}（${staple.stageForms[phase.key]}）`, grams: stapleG,
+      });
+    }
+    if (veg) {
+      items.push({
+        cat: "veg", ingredientId: veg.id,
+        text: `${veg.name}（${veg.stageForms[phase.key]}）`, grams: vegG,
+      });
+    }
+    if (protein) {
+      items.push({
+        cat: "protein", ingredientId: protein.id,
+        text: `${protein.name}（${protein.stageForms[phase.key]}）`, grams: proteinG,
+      });
     }
 
     return { name, items, totalGrams: items.reduce((a, b) => a + b.grams, 0) };
   });
 
-  const insight = buildInsight(adj, disliked, liked, logCount);
-  const avoidedFoods = [...disliked];
+  const idToName = new Map(INGREDIENT_MASTER.map((i) => [i.id, i.name]));
+  const dislikedNames = [...disliked].map((id) => idToName.get(id) ?? id);
+  const likedNames = [...liked].map((id) => idToName.get(id) ?? id);
+
+  const insight = buildInsight(adj, dislikedNames, likedNames, logCount);
 
   return {
     dateIso,
@@ -242,8 +310,8 @@ export function generateSuggestion(params: {
     seed,
     adjustFactor: adj,
     meals,
-    version: 2,
+    version: PLAN_SCHEMA_VERSION,
     insight,
-    avoidedFoods,
+    avoidedFoods: dislikedNames,
   };
 }

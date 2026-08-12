@@ -8,6 +8,7 @@ export type FoodCategory = "staple" | "veg" | "protein";
 
 export type PlanItem = {
   cat: FoodCategory;
+  ingredientId: string;
   text: string;
   grams: number;
 };
@@ -53,11 +54,17 @@ export type DailyLog = {
   updatedAt?: number;
 };
 
+// 消費者庁「特定原材料等」のうち離乳食で登場しうるもの
+export type Allergen =
+  | "egg" | "milk" | "wheat" | "soy" | "peanut"
+  | "walnut" | "buckwheat" | "shrimp" | "crab" | "fish" | "sesame";
+
 // ===== 赤ちゃんプロフィール（世帯単位でFirestore同期） =====
 export type BabyProfile = {
   birthdayIso: string;
   weaningStartIso: string;
-  allergies: string[];
+  allergies: string[];       // 自由入力（表示用・後方互換）
+  allergenTags: Allergen[];  // 提案フィルタで実際に使うタグ
   updatedAt?: number;
 };
 
@@ -69,7 +76,9 @@ export type Ingredient = {
   name: string;
   category: IngredientCategory;
   earliestStage: PhaseKey;
-  allergenRisk: boolean;
+  allergens: Allergen[];
+  // ステージ別の形状・調理法（未定義のステージでは登場させない食材もあるため optional）
+  stageForms: Partial<Record<PhaseKey, string>>;
 };
 
 export type IngredientStatusValue = "not_tried" | "safe" | "allergic";
@@ -77,6 +86,11 @@ export type IngredientStatusValue = "not_tried" | "safe" | "allergic";
 export type IngredientStatus = {
   status: IngredientStatusValue;
   notes?: string;
+  firstTriedAtIso?: string;   // 初回摂取日（"safe"に初めてした時に自動設定、後から編集可）
+  amountNote?: string;        // 摂取量の目安（例: 「小さじ1」）
+  symptom?: string;           // 症状（アレルギー反応があった場合）
+  onsetMinutes?: number;      // 摂取〜発症までの分数
+  hospitalVisited?: boolean;  // 受診したか
   updatedAt?: number;
 };
 

@@ -15,9 +15,14 @@ export function AiSuggest(props: {
   allergies: string[];
   safeIngredients: string[];
   notTriedIngredients: string[];
+  likedIngredients: string[];
+  dislikedIngredients: string[];
   onClose: () => void;
 }) {
-  const { ageMonths, phase, allergies, safeIngredients, notTriedIngredients, onClose } = props;
+  const {
+    ageMonths, phase, allergies, safeIngredients, notTriedIngredients,
+    likedIngredients, dislikedIngredients, onClose,
+  } = props;
   const [fridgeInput, setFridgeInput] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +44,8 @@ export function AiSuggest(props: {
         safeIngredients,
         notTriedIngredients,
         fridgeIngredients,
+        likedIngredients,
+        dislikedIngredients,
       });
       setResult(res);
     } catch (e: unknown) {

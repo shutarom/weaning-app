@@ -748,3 +748,24 @@
   font-weight: 500;
   border-style: dashed;
 }
+
+/* ===== 印刷 ===== */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-record,
+  .printable-record * {
+    visibility: visible;
+  }
+  .printable-record {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    color: #000;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

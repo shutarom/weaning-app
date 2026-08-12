@@ -1,7 +1,14 @@
-import type { BabyProfile } from "../domain/types";
-import { syncProfilePatchToCloud, addAllergyToCloud, removeAllergyFromCloud, toMillis } from "./cloudSync";
+import type { Allergen, BabyProfile } from "../domain/types";
+import {
+  syncProfilePatchToCloud, addAllergyToCloud, removeAllergyFromCloud,
+  addAllergenTagToCloud, removeAllergenTagFromCloud, toMillis,
+} from "./cloudSync";
+import { getBabyId } from "../lib/babyState";
 
-const KEY = "weaning_profile_v1";
+// 赤ちゃんごとにローカルのプロフィールを分離する。
+function storageKey(): string {
+  return `weaning_profile_v1:${getBabyId() ?? "_"}`;
+}
 // 旧バージョンのローカル専用キー（世帯同期がなかった頃の名残）。
 // 新形式が空ならここから一度だけ移行する。
 const LEGACY_BIRTHDAY_KEY = "weaning_birthday";
@@ -16,33 +23,33 @@ function notifyChanged() {
 }
 
 function empty(): BabyProfile {
-  return { birthdayIso: "", weaningStartIso: "", allergies: [] };
+  return { birthdayIso: "", weaningStartIso: "", allergies: [], allergenTags: [] };
 }
 
 function migrateLegacy(): BabyProfile | null {
   const birthdayIso = localStorage.getItem(LEGACY_BIRTHDAY_KEY);
   if (!birthdayIso) return null;
   const weaningStartIso = localStorage.getItem(LEGACY_WEANING_START_KEY) ?? "";
-  return { birthdayIso, weaningStartIso, allergies: [], updatedAt: Date.now() };
+  return { birthdayIso, weaningStartIso, allergies: [], allergenTags: [], updatedAt: Date.now() };
 }
 
 export function loadProfile(): BabyProfile {
   try {
-    const raw = localStorage.getItem(KEY);
+    const raw = localStorage.getItem(storageKey());
     if (raw) return { ...empty(), ...(JSON.parse(raw) as Partial<BabyProfile>) };
   } catch {
     // fall through to legacy/empty
   }
   const legacy = migrateLegacy();
   if (legacy) {
-    localStorage.setItem(KEY, JSON.stringify(legacy));
+    localStorage.setItem(storageKey(), JSON.stringify(legacy));
     return legacy;
   }
   return empty();
 }
 
 function writeLocal(profile: BabyProfile): void {
-  localStorage.setItem(KEY, JSON.stringify(profile));
+  localStorage.setItem(storageKey(), JSON.stringify(profile));
   notifyChanged();
 }
 
@@ -71,6 +78,19 @@ export function removeAllergy(name: string): void {
   const local = loadProfile();
   writeLocal({ ...local, allergies: local.allergies.filter((a) => a !== name), updatedAt: Date.now() });
   void removeAllergyFromCloud(name).catch((e) => console.error("removeAllergyFromCloud failed", e));
+}
+
+export function addAllergenTag(tag: Allergen): void {
+  const local = loadProfile();
+  if (local.allergenTags.includes(tag)) return;
+  writeLocal({ ...local, allergenTags: [...local.allergenTags, tag], updatedAt: Date.now() });
+  void addAllergenTagToCloud(tag).catch((e) => console.error("addAllergenTagToCloud failed", e));
+}
+
+export function removeAllergenTag(tag: Allergen): void {
+  const local = loadProfile();
+  writeLocal({ ...local, allergenTags: local.allergenTags.filter((a) => a !== tag), updatedAt: Date.now() });
+  void removeAllergenTagFromCloud(tag).catch((e) => console.error("removeAllergenTagFromCloud failed", e));
 }
 
 /** クラウドの方が新しければローカルへ反映する（Timestampと数値どちらでも比較できるよう正規化） */

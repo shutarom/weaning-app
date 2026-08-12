@@ -4,14 +4,20 @@ import {
 } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { getHouseholdId } from "../lib/householdState";
+import { getBabyId } from "../lib/babyState";
 import { getDeviceId } from "../lib/deviceId";
-import type { BabyProfile, DailyLog, DailyPlan, IngredientStatus } from "../domain/types";
+import type { Allergen, BabyProfile, DailyLog, DailyPlan, IngredientStatus } from "../domain/types";
 
 function activeContext() {
   const hid = getHouseholdId();
-  if (!hid) return null;
+  const babyId = getBabyId();
+  if (!hid || !babyId) return null;
   const uid = auth.currentUser?.uid ?? getDeviceId();
-  return { hid, uid };
+  return { hid, babyId, uid };
+}
+
+function babyDoc(hid: string, babyId: string, ...path: string[]) {
+  return doc(db, "households", hid, "babies", babyId, ...path);
 }
 
 function stripUndefined<T>(value: T): T {
@@ -35,18 +41,21 @@ export function toMillis(val: unknown): number {
 }
 
 // ===== 書き込み =====
+// households/{hid}/babies/{babyId}/... 配下に書き込む。
+// プロフィール(生年月日・アレルギー等)は babies/{babyId} ドキュメント自体が兼ねる
+// （旧バージョンにあった専用の profile/baby サブコレクションは廃止）。
 
 export async function syncLogToCloud(dateIso: string, log: DailyLog): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
-  const ref = doc(db, "households", ctx.hid, "logs", dateIso);
+  const ref = babyDoc(ctx.hid, ctx.babyId, "logs", dateIso);
   await setDoc(ref, stripUndefined({ ...log, dateIso, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
 }
 
 export async function syncPlanToCloud(dateIso: string, plan: DailyPlan): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
-  const ref = doc(db, "households", ctx.hid, "plans", dateIso);
+  const ref = babyDoc(ctx.hid, ctx.babyId, "plans", dateIso);
   await setDoc(ref, stripUndefined({ ...plan, dateIso, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
 }
 
@@ -57,14 +66,20 @@ export async function syncPlanToCloud(dateIso: string, plan: DailyPlan): Promise
 export async function syncProfilePatchToCloud(patch: Partial<BabyProfile>): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
-  const ref = doc(db, "households", ctx.hid, "profile", "baby");
+  const ref = babyDoc(ctx.hid, ctx.babyId);
   await setDoc(ref, stripUndefined({ ...patch, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
+}
+
+/** 切り替えずに任意のbabyIdの名前を変更する（スイッチャーUIから他の赤ちゃんを改名する用途） */
+export async function renameBabyByIdInCloud(hid: string, babyId: string, name: string): Promise<void> {
+  const ref = doc(db, "households", hid, "babies", babyId);
+  await setDoc(ref, { name, updatedAt: serverTimestamp() }, { merge: true });
 }
 
 export async function addAllergyToCloud(name: string): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
-  const ref = doc(db, "households", ctx.hid, "profile", "baby");
+  const ref = babyDoc(ctx.hid, ctx.babyId);
   await setDoc(
     ref,
     { allergies: arrayUnion(name), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
@@ -75,12 +90,34 @@ export async function addAllergyToCloud(name: string): Promise<void> {
 export async function removeAllergyFromCloud(name: string): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
-  const ref = doc(db, "households", ctx.hid, "profile", "baby");
+  const ref = babyDoc(ctx.hid, ctx.babyId);
   // ドキュメントが存在しない可能性もあるため setDoc+merge ではなく updateDoc は使わず、
-  // arrayRemove は存在しないドキュメントに対しては setDoc(merge) でも安全に無視される。
+  // arrayRemove は存在しないドキュメントに対しても setDoc(merge) でも安全に無視される。
   await setDoc(
     ref,
     { allergies: arrayRemove(name), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
+    { merge: true }
+  );
+}
+
+export async function addAllergenTagToCloud(tag: Allergen): Promise<void> {
+  const ctx = activeContext();
+  if (!ctx) return;
+  const ref = babyDoc(ctx.hid, ctx.babyId);
+  await setDoc(
+    ref,
+    { allergenTags: arrayUnion(tag), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
+    { merge: true }
+  );
+}
+
+export async function removeAllergenTagFromCloud(tag: Allergen): Promise<void> {
+  const ctx = activeContext();
+  if (!ctx) return;
+  const ref = babyDoc(ctx.hid, ctx.babyId);
+  await setDoc(
+    ref,
+    { allergenTags: arrayRemove(tag), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
     { merge: true }
   );
 }
@@ -91,7 +128,7 @@ export async function syncIngredientStatusToCloud(
 ): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
-  const ref = doc(db, "households", ctx.hid, "ingredientStatus", ingredientId);
+  const ref = babyDoc(ctx.hid, ctx.babyId, "ingredientStatus", ingredientId);
   await setDoc(ref, stripUndefined({ ...entry, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
 }
 
@@ -105,6 +142,7 @@ function statusFromError(err: FirestoreError): SyncStatus {
 
 export function subscribeToCloud(
   hid: string,
+  babyId: string,
   onData: (logs: Record<string, DailyLog>, plans: Record<string, DailyPlan>) => void,
   onStatusChange: (status: SyncStatus) => void
 ): () => void {
@@ -126,7 +164,7 @@ export function subscribeToCloud(
   }
 
   const unsubLogs = onSnapshot(
-    collection(db, "households", hid, "logs"),
+    collection(db, "households", hid, "babies", babyId, "logs"),
     (snap) => {
       const logs: Record<string, DailyLog> = {};
       snap.forEach((d) => { logs[d.id] = d.data() as DailyLog; });
@@ -138,7 +176,7 @@ export function subscribeToCloud(
   );
 
   const unsubPlans = onSnapshot(
-    collection(db, "households", hid, "plans"),
+    collection(db, "households", hid, "babies", babyId, "plans"),
     (snap) => {
       const plans: Record<string, DailyPlan> = {};
       snap.forEach((d) => { plans[d.id] = d.data() as DailyPlan; });
@@ -154,11 +192,12 @@ export function subscribeToCloud(
 
 export function subscribeProfile(
   hid: string,
+  babyId: string,
   onData: (profile: BabyProfile | null) => void,
   onError?: (status: SyncStatus) => void
 ): () => void {
   return onSnapshot(
-    doc(db, "households", hid, "profile", "baby"),
+    doc(db, "households", hid, "babies", babyId),
     (snap) => onData(snap.exists() ? (snap.data() as BabyProfile) : null),
     (err) => { onData(null); onError?.(statusFromError(err)); }
   );
@@ -166,11 +205,12 @@ export function subscribeProfile(
 
 export function subscribeIngredientStatuses(
   hid: string,
+  babyId: string,
   onData: (statuses: Record<string, IngredientStatus>) => void,
   onError?: (status: SyncStatus) => void
 ): () => void {
   return onSnapshot(
-    collection(db, "households", hid, "ingredientStatus"),
+    collection(db, "households", hid, "babies", babyId, "ingredientStatus"),
     (snap) => {
       const statuses: Record<string, IngredientStatus> = {};
       snap.forEach((d) => { statuses[d.id] = d.data() as IngredientStatus; });

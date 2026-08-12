@@ -17,8 +17,13 @@ service cloud.firestore {
       allow get: if isSignedIn();
       allow list: if false;
       allow create: if isSignedIn() && request.resource.data.ownerUid == request.auth.uid;
-      allow update, delete: if isSignedIn() &&
-        get(/databases/$(database)/documents/households/$(hid)).data.ownerUid == request.auth.uid;
+      // schemaVersion等のメタデータはどのメンバーからでも更新できる必要がある
+      // （複数端末対応の移行処理は最初に起動したメンバーの端末が行うため、
+      // オーナーの端末とは限らない）。ただし ownerUid 自体はオーナーしか変更できない
+      // ようにして、メンバーによるhousehold乗っ取りを防ぐ。
+      allow update: if isSignedIn() && isMember(hid) &&
+        request.resource.data.ownerUid == resource.data.ownerUid;
+      allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
 
       match /members/{uid} {
         allow read: if isMember(hid);
@@ -36,6 +41,26 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
+      // ===== 複数の赤ちゃんに対応した現行のデータ構造 =====
+      // babies/{babyId} ドキュメント自体がプロフィール(生年月日・アレルギー等)を兼ねる。
+      match /babies/{babyId} {
+        allow read, write: if isMember(hid);
+
+        match /logs/{dateIso} {
+          allow read, write: if isMember(hid);
+        }
+
+        match /plans/{dateIso} {
+          allow read, write: if isMember(hid);
+        }
+
+        match /ingredientStatus/{ingredientId} {
+          allow read, write: if isMember(hid);
+        }
+      }
+
+      // ===== 旧データ構造（schemaVersion 2への移行前に作られたhousehold用） =====
+      // babies/{babyId}へ移行済みでもドキュメント自体は削除しないため、当面残しておく。
       match /logs/{dateIso} {
         allow read, write: if isMember(hid);
       }

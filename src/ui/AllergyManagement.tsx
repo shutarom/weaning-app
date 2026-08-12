@@ -1,15 +1,20 @@
 import { useState } from "react";
-import { INGREDIENT_MASTER } from "../domain/ingredients";
-import type { IngredientStatus } from "../domain/types";
+import { ALLERGENS, ALLERGEN_LABEL, INGREDIENT_MASTER } from "../domain/ingredients";
+import type { Allergen, IngredientStatus } from "../domain/types";
 
 export function AllergyManagement(props: {
   allergies: string[];
+  allergenTags: Allergen[];
   statuses: Record<string, IngredientStatus>;
   onAddAllergy: (name: string) => void;
   onRemoveAllergy: (name: string) => void;
+  onToggleAllergenTag: (tag: Allergen) => void;
   onClose: () => void;
 }) {
-  const { allergies, statuses, onAddAllergy, onRemoveAllergy, onClose } = props;
+  const {
+    allergies, allergenTags, statuses,
+    onAddAllergy, onRemoveAllergy, onToggleAllergenTag, onClose,
+  } = props;
   const [input, setInput] = useState("");
 
   const allergicIngredients = INGREDIENT_MASTER.filter(
@@ -28,9 +33,36 @@ export function AllergyManagement(props: {
       <h2 style={{ textAlign: "center", margin: 0 }}>🚨 アレルギー管理</h2>
 
       <div className="onboarding-card">
-        <div className="onboarding-card-title">申告済みアレルギー食材</div>
+        <div className="onboarding-card-title">特定原材料（提案から確実に除外）</div>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
-          ここに登録した食材はAI献立提案で絶対に使われません
+          タップして選択した原材料は、カレンダーの提案・AI献立提案の両方で使われません
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+          {ALLERGENS.map((tag) => {
+            const selected = allergenTags.includes(tag);
+            return (
+              <button
+                key={tag}
+                onClick={() => onToggleAllergenTag(tag)}
+                style={{
+                  fontSize: 13, padding: "6px 12px", borderRadius: 999,
+                  border: "1px solid #dc2626",
+                  background: selected ? "#dc2626" : "transparent",
+                  color: selected ? "#fff" : "#dc2626",
+                  cursor: "pointer",
+                }}
+              >
+                {ALLERGEN_LABEL[tag]}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="onboarding-card">
+        <div className="onboarding-card-title">その他の申告（自由記述・メモ用）</div>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
+          上の一覧にない食材はここにメモできます（提案の自動除外には使われません）
         </p>
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
           {allergies.length === 0 && (

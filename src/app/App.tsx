@@ -4,6 +4,8 @@ import { DayDetail } from "../ui/DayDetail";
 import { IngredientChecklist } from "../ui/IngredientChecklist";
 import { AllergyManagement } from "../ui/AllergyManagement";
 import { AiSuggest } from "../ui/AiSuggest";
+import { BackupScreen } from "../ui/BackupScreen";
+import { PrintableRecord } from "../ui/PrintableRecord";
 import {
   addMonths,
   clampToMonthFirst,
@@ -13,10 +15,11 @@ import {
   monthsBetween,
   startOfWeek,
 } from "../domain/date";
-import { loadAllLogs, STORE_CHANGED_EVENT_NAME, mergeFromCloud } from "../data/localStore";
-import { subscribeToCloud, subscribeProfile, subscribeIngredientStatuses, type SyncStatus } from "../data/cloudSync";
+import { loadAllLogs, STORE_CHANGED_EVENT_NAME, mergeFromCloud, getRecentLogs, getRecentPlans } from "../data/localStore";
+import { subscribeToCloud, subscribeProfile, subscribeIngredientStatuses, renameBabyByIdInCloud, type SyncStatus } from "../data/cloudSync";
 import {
   loadProfile, saveProfile, addAllergy, removeAllergy,
+  addAllergenTag, removeAllergenTag,
   mergeProfileFromCloud, PROFILE_CHANGED_EVENT_NAME,
 } from "../data/profileStore";
 import {
@@ -25,14 +28,16 @@ import {
   mergeIngredientStatusesFromCloud,
   INGREDIENT_STATUS_CHANGED_EVENT_NAME,
 } from "../data/ingredientStore";
-import { INGREDIENT_MASTER } from "../domain/ingredients";
-import { phaseFromMonths } from "../domain/suggestionEngine";
-import type { DailyLog } from "../domain/types";
+import { INGREDIENT_MASTER, ALLERGEN_LABEL } from "../domain/ingredients";
+import { phaseFromMonths, summarizePreferences } from "../domain/suggestionEngine";
+import type { Allergen, DailyLog } from "../domain/types";
 import { Onboarding } from "../ui/Onboarding";
 import { getHouseholdId, clearHouseholdId } from "../lib/householdState";
+import { getBabyId, setBabyId } from "../lib/babyState";
+import { createBaby, listBabies, migrateToMultiBabyIfNeeded, getBabyProfile, type BabySummary } from "../lib/babies";
 import { useAuthUser } from "../lib/useAuthUser";
 
-type ViewMode = "calendar" | "settings" | "ingredients" | "allergies" | "ai";
+type ViewMode = "calendar" | "settings" | "ingredients" | "allergies" | "ai" | "backup" | "print";
 
 function todayIso(): string {
   return toIso(new Date());
@@ -69,6 +74,8 @@ function MenuOverlay(props: { onSelect: (v: ViewMode) => void; onClose: () => vo
     { view: "ingredients", icon: "🥕", label: "食材チェック" },
     { view: "allergies", icon: "🚨", label: "アレルギー管理" },
     { view: "ai", icon: "✨", label: "AI献立提案" },
+    { view: "print", icon: "🖨", label: "記録の印刷" },
+    { view: "backup", icon: "💾", label: "バックアップ" },
   ];
   return (
     <div
@@ -104,10 +111,118 @@ function MenuOverlay(props: { onSelect: (v: ViewMode) => void; onClose: () => vo
   );
 }
 
+function BabySwitcherOverlay(props: {
+  babies: BabySummary[];
+  activeBabyId: string;
+  busy: boolean;
+  onSelect: (id: string) => void;
+  onAdd: (name: string) => void;
+  onRename: (id: string, name: string) => void;
+  onClose: () => void;
+}) {
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+        display: "flex", alignItems: "flex-start", justifyContent: "flex-start", zIndex: 50,
+      }}
+      onClick={props.onClose}
+    >
+      <div
+        style={{
+          background: "var(--panel, #fff)", borderRadius: 12, margin: "56px 0 0 12px",
+          minWidth: 220, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {props.babies.map((b) => (
+          <div key={b.id} style={{ display: "flex", alignItems: "center", borderBottom: "1px solid var(--border)" }}>
+            {renamingId === b.id ? (
+              <input
+                className="birthday-input"
+                style={{ margin: 8, fontSize: 13 }}
+                value={renameValue}
+                autoFocus
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { props.onRename(b.id, renameValue); setRenamingId(null); }
+                  if (e.key === "Escape") setRenamingId(null);
+                }}
+                onBlur={() => setRenamingId(null)}
+              />
+            ) : (
+              <>
+                <button
+                  disabled={props.busy}
+                  onClick={() => { props.onSelect(b.id); props.onClose(); }}
+                  style={{
+                    flex: 1, display: "flex", alignItems: "center", gap: 8,
+                    padding: "12px 16px", border: "none", background: "none",
+                    fontSize: 14, textAlign: "left", cursor: "pointer",
+                    fontWeight: b.id === props.activeBabyId ? 700 : 400,
+                  }}
+                >
+                  <span>{b.id === props.activeBabyId ? "👶" : "🧒"}</span>
+                  <span>{b.name}</span>
+                </button>
+                <button
+                  onClick={() => { setRenamingId(b.id); setRenameValue(b.name); }}
+                  style={{ border: "none", background: "none", padding: "8px 12px", cursor: "pointer", color: "var(--text-muted)", fontSize: 12 }}
+                  title="名前を編集"
+                >
+                  ✏️
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+        {adding ? (
+          <div style={{ display: "flex", gap: 6, padding: 8 }}>
+            <input
+              className="birthday-input"
+              style={{ fontSize: 13 }}
+              placeholder="名前"
+              value={newName}
+              autoFocus
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && newName.trim()) {
+                  props.onAdd(newName.trim());
+                  setAdding(false);
+                  setNewName("");
+                }
+                if (e.key === "Escape") setAdding(false);
+              }}
+            />
+          </div>
+        ) : (
+          <button
+            disabled={props.busy}
+            onClick={() => setAdding(true)}
+            style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%",
+              padding: "12px 16px", border: "none", background: "none",
+              fontSize: 14, textAlign: "left", cursor: "pointer", color: "var(--accent)",
+            }}
+          >
+            ＋ 赤ちゃんを追加
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsScreen(props: {
   birthdayIso: string;
   weaningStartIso: string;
   allergies: string[];
+  allergenTags: Allergen[];
   householdId: string;
   onSave: (birthday: string, weaningStart: string) => void;
   onOpenAllergies: () => void;
@@ -196,7 +311,9 @@ function SettingsScreen(props: {
       <div className="onboarding-card">
         <div className="onboarding-card-title">🚨 アレルギー食材</div>
         <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
-          {props.allergies.length > 0 ? props.allergies.join("、") : "未登録"}
+          {[...props.allergenTags.map((t) => ALLERGEN_LABEL[t]), ...props.allergies].length > 0
+            ? [...new Set([...props.allergenTags.map((t) => ALLERGEN_LABEL[t]), ...props.allergies])].join("、")
+            : "未登録"}
         </p>
         <button className="onboarding-btn" onClick={props.onOpenAllergies}>
           🚨 アレルギー管理を開く
@@ -239,14 +356,110 @@ export default function App() {
   return <MainApp householdId={householdId} />;
 }
 
+type ActiveState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | { status: "ready"; babyId: string };
+
+/**
+ * householdIdが決まった後、赤ちゃん単位のデータ構造(babies/{babyId})を解決する。
+ * 旧バージョンで作られたhouseholdは初回だけ移行処理が走る（babies.ts参照）。
+ */
 function MainApp({ householdId }: { householdId: string }) {
+  const [babies, setBabies] = useState<BabySummary[]>([]);
+  const [active, setActive] = useState<ActiveState>({ status: "loading" });
+
+  // 指定babyIdをローカルの「現在の赤ちゃん」にする。切り替え直後・新規追加直後は
+  // そのbabyId用のローカルキャッシュがまだ空なので、先にクラウドの値で温めてから
+  // 画面を出す（そうしないと生年月日等が一瞬空に見え、設定画面に戻ってしまう）。
+  const activateBaby = async (id: string) => {
+    setActive({ status: "loading" });
+    try {
+      setBabyId(id);
+      const cloudProfile = await getBabyProfile(householdId, id);
+      if (cloudProfile) mergeProfileFromCloud(cloudProfile);
+      setActive({ status: "ready", babyId: id });
+    } catch (e) {
+      setActive({ status: "error", message: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setActive({ status: "loading" });
+      try {
+        await migrateToMultiBabyIfNeeded(householdId);
+        let list = await listBabies(householdId);
+        if (list.length === 0) {
+          // 理論上は起こらないはずだが、念のためのフォールバック
+          await createBaby(householdId, "赤ちゃん", 0);
+          list = await listBabies(householdId);
+        }
+        if (cancelled) return;
+        setBabies(list);
+        const saved = getBabyId();
+        const activeId = saved && list.some((b) => b.id === saved) ? saved : list[0].id;
+        await activateBaby(activeId);
+      } catch (e) {
+        if (!cancelled) {
+          setActive({ status: "error", message: e instanceof Error ? e.message : String(e) });
+        }
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [householdId]);
+
+  if (active.status === "loading") {
+    return (
+      <div className="onboarding">
+        <p className="hint-text">読み込み中…</p>
+      </div>
+    );
+  }
+  if (active.status === "error") {
+    return (
+      <div className="onboarding">
+        <p className="error-text">⚠️ {active.message}</p>
+        <button className="onboarding-btn" onClick={() => window.location.reload()}>再読み込み</button>
+      </div>
+    );
+  }
+
+  return (
+    <BabyScopedApp
+      // babyIdが変わったら状態を素朴にリセットしたいので remount させる
+      key={active.babyId}
+      householdId={householdId}
+      babyId={active.babyId}
+      babies={babies}
+      onSwitchBaby={(id) => void activateBaby(id)}
+      onBabiesChanged={setBabies}
+    />
+  );
+}
+
+function BabyScopedApp({
+  householdId, babyId, babies, onSwitchBaby, onBabiesChanged,
+}: {
+  householdId: string;
+  babyId: string;
+  babies: BabySummary[];
+  onSwitchBaby: (id: string) => void;
+  onBabiesChanged: (babies: BabySummary[]) => void;
+}) {
   const [profile, setProfile] = useState(() => loadProfile());
   const [view, setView] = useState<ViewMode>(() => (loadProfile().birthdayIso ? "calendar" : "settings"));
   const [menuOpen, setMenuOpen] = useState(false);
+  const [babySwitcherOpen, setBabySwitcherOpen] = useState(false);
+  const [babySwitcherBusy, setBabySwitcherBusy] = useState(false);
   const [selectedIso, setSelectedIso] = useState<string>(todayIso());
   const [mode, setMode] = useState<"month" | "week">("month");
   const [viewDate, setViewDate] = useState<Date>(clampToMonthFirst(new Date()));
-  const [mobilePanel, setMobilePanel] = useState<"calendar" | "detail">("calendar");
+  // 起動直後に「今日の食事」が見えるようにする（B-5: 今日ホーム画面の簡易実装）。
+  // デスクトップでは元々カレンダーと詳細を同時表示しているため影響しない。
+  const [mobilePanel, setMobilePanel] = useState<"calendar" | "detail">("detail");
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("connecting");
 
   const [logsMap, setLogsMap] = useState<Record<string, DailyLog>>(() => loadAllLogs());
@@ -274,22 +487,23 @@ function MainApp({ householdId }: { householdId: string }) {
   useEffect(() => {
     const unsub = subscribeToCloud(
       householdId,
+      babyId,
       (cloudLogs, cloudPlans) => {
         mergeFromCloud(cloudLogs, cloudPlans);
       },
       setSyncStatus
     );
     return unsub;
-  }, [householdId]);
+  }, [householdId, babyId]);
 
   // Firestore リアルタイム同期（プロフィール・食材ステータス）
   // permission-denied（この端末がmembersに存在しない等）はログ・プランの購読とは
   // 独立に検知しうるため、こちらのエラーも同じ syncStatus にまとめて反映する。
   useEffect(() => {
-    const unsubProfile = subscribeProfile(householdId, mergeProfileFromCloud, setSyncStatus);
-    const unsubIngredients = subscribeIngredientStatuses(householdId, mergeIngredientStatusesFromCloud, setSyncStatus);
+    const unsubProfile = subscribeProfile(householdId, babyId, mergeProfileFromCloud, setSyncStatus);
+    const unsubIngredients = subscribeIngredientStatuses(householdId, babyId, mergeIngredientStatusesFromCloud, setSyncStatus);
     return () => { unsubProfile(); unsubIngredients(); };
-  }, [householdId]);
+  }, [householdId, babyId]);
 
   const handleSyncRecover = () => {
     if (!window.confirm("この端末を家族グループから一旦切り離し、招待コードで再参加しますか？（記録データはこの端末に残ります）")) return;
@@ -297,7 +511,30 @@ function MainApp({ householdId }: { householdId: string }) {
     window.location.reload();
   };
 
-  const { birthdayIso, weaningStartIso, allergies } = profile;
+  const handleAddBaby = async (name: string) => {
+    setBabySwitcherBusy(true);
+    try {
+      const newId = await createBaby(householdId, name, babies.length);
+      onBabiesChanged(await listBabies(householdId));
+      onSwitchBaby(newId);
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "追加に失敗しました");
+    } finally {
+      setBabySwitcherBusy(false);
+    }
+  };
+
+  const handleRenameBaby = async (id: string, name: string) => {
+    try {
+      await renameBabyByIdInCloud(householdId, id, name.trim() || "赤ちゃん");
+      onBabiesChanged(await listBabies(householdId));
+    } catch (e) {
+      window.alert(e instanceof Error ? e.message : "名前の変更に失敗しました");
+    }
+  };
+
+  const { birthdayIso, weaningStartIso, allergies, allergenTags } = profile;
+  const activeBabyName = babies.find((b) => b.id === babyId)?.name ?? "赤ちゃん";
 
   // 離乳食開始日が設定されている場合はそこからのステージ計算
   // 未設定の場合は月齢から計算（従来動作）
@@ -397,6 +634,7 @@ function MainApp({ householdId }: { householdId: string }) {
         birthdayIso={birthdayIso}
         weaningStartIso={weaningStartIso}
         allergies={allergies}
+        allergenTags={allergenTags}
         householdId={householdId}
         onSave={(b, ws) => saveProfile({ birthdayIso: b, weaningStartIso: ws })}
         onOpenAllergies={() => setView("allergies")}
@@ -409,7 +647,7 @@ function MainApp({ householdId }: { householdId: string }) {
     return (
       <IngredientChecklist
         statuses={ingredientStatuses}
-        onChange={(id, status, notes) => setIngredientStatus(id, status, notes)}
+        onChange={(id, patch) => setIngredientStatus(id, patch)}
         onClose={() => setView("calendar")}
       />
     );
@@ -419,9 +657,13 @@ function MainApp({ householdId }: { householdId: string }) {
     return (
       <AllergyManagement
         allergies={allergies}
+        allergenTags={allergenTags}
         statuses={ingredientStatuses}
         onAddAllergy={addAllergy}
         onRemoveAllergy={removeAllergy}
+        onToggleAllergenTag={(tag) =>
+          allergenTags.includes(tag) ? removeAllergenTag(tag) : addAllergenTag(tag)
+        }
         onClose={() => setView("calendar")}
       />
     );
@@ -434,13 +676,39 @@ function MainApp({ householdId }: { householdId: string }) {
     const notTriedIngredients = INGREDIENT_MASTER
       .filter((i) => (ingredientStatuses[i.id]?.status ?? "not_tried") === "not_tried")
       .map((i) => i.name);
+    // 自由記述のアレルギー申告とタグ選択の両方をAIプロンプトに渡し、
+    // どちらか一方にしか登録していなくても確実に除外されるようにする。
+    const allAllergyLabels = [
+      ...new Set([...allergies, ...allergenTags.map((t) => ALLERGEN_LABEL[t])]),
+    ];
+    // カレンダーの日次提案と同じ学習結果(好き・苦手)をAI提案にも反映する。
+    const { liked: likedIngredients, disliked: dislikedIngredients } = summarizePreferences(
+      getRecentLogs(selectedIso, 14),
+      getRecentPlans(selectedIso, 14)
+    );
     return (
       <AiSuggest
         ageMonths={ageMonths}
         phase={phase}
-        allergies={allergies}
+        allergies={allAllergyLabels}
         safeIngredients={safeIngredients}
         notTriedIngredients={notTriedIngredients}
+        likedIngredients={likedIngredients}
+        dislikedIngredients={dislikedIngredients}
+        onClose={() => setView("calendar")}
+      />
+    );
+  }
+
+  if (view === "backup") {
+    return <BackupScreen onClose={() => setView("calendar")} />;
+  }
+
+  if (view === "print") {
+    return (
+      <PrintableRecord
+        profile={profile}
+        statuses={ingredientStatuses}
         onClose={() => setView("calendar")}
       />
     );
@@ -458,6 +726,16 @@ function MainApp({ householdId }: { householdId: string }) {
         )}
         <div className="header-right">
           <SyncBadge status={syncStatus} onRecover={handleSyncRecover} />
+          {babies.length > 1 && (
+            <button
+              className="icon-btn"
+              style={{ fontSize: 12, fontWeight: 700 }}
+              onClick={() => setBabySwitcherOpen(true)}
+              title="赤ちゃんを切り替え"
+            >
+              👶 {activeBabyName} ▾
+            </button>
+          )}
           <span className="phase-badge">
             {phase.label}
             {ageLabel && <> · {ageLabel}</>}
@@ -476,6 +754,18 @@ function MainApp({ householdId }: { householdId: string }) {
         <MenuOverlay
           onSelect={(v) => { setView(v); setMenuOpen(false); }}
           onClose={() => setMenuOpen(false)}
+        />
+      )}
+
+      {babySwitcherOpen && (
+        <BabySwitcherOverlay
+          babies={babies}
+          activeBabyId={babyId}
+          busy={babySwitcherBusy}
+          onSelect={onSwitchBaby}
+          onAdd={(name) => void handleAddBaby(name)}
+          onRename={(id, name) => void handleRenameBaby(id, name)}
+          onClose={() => setBabySwitcherOpen(false)}
         />
       )}
 
@@ -503,7 +793,12 @@ function MainApp({ householdId }: { householdId: string }) {
           />
         </div>
         <div className={`panel panel-detail ${mobilePanel === "detail" ? "mobile-visible" : "mobile-hidden"}`}>
-          <DayDetail dateIso={selectedIso} ageMonths={ageMonths} />
+          <DayDetail
+            dateIso={selectedIso}
+            ageMonths={ageMonths}
+            allergenTags={allergenTags}
+            ingredientStatuses={ingredientStatuses}
+          />
         </div>
       </main>
     </div>
