@@ -188,7 +188,6 @@ function MainApp({ householdId }: { householdId: string }) {
 
   // Firestore リアルタイム同期
   useEffect(() => {
-    setSyncStatus("connecting");
     const unsub = subscribeToCloud(
       householdId,
       (cloudLogs, cloudPlans) => {

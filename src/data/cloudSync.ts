@@ -40,6 +40,8 @@ export function subscribeToCloud(
   onData: (logs: Record<string, DailyLog>, plans: Record<string, DailyPlan>) => void,
   onStatusChange: (status: SyncStatus) => void
 ): () => void {
+  onStatusChange("connecting");
+
   // 両コレクションが揃ってから onData を呼ぶ
   const state = {
     logs: {} as Record<string, DailyLog>,
