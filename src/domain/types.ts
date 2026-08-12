@@ -11,6 +11,7 @@ export type PlanItem = {
   ingredientId: string;
   text: string;
   grams: number;
+  tip?: string; // 食べさせ方の工夫（ある場合のみ）
 };
 
 export type MealPlan = {
@@ -71,14 +72,22 @@ export type BabyProfile = {
 // ===== 食材マスター・ステータス =====
 export type IngredientCategory = "carb" | "protein" | "vitamin" | "other";
 
+// ステージごとの調理情報。cookは必須（チップ表示に使う調理法・形状の一文）、
+// prep/tipは任意（下ごしらえの注意点／食べさせ方の工夫。無い場合は書かない）。
+export type StageForm = {
+  cook: string;
+  prep?: string;
+  tip?: string;
+};
+
 export type Ingredient = {
   id: string;
   name: string;
   category: IngredientCategory;
   earliestStage: PhaseKey;
   allergens: Allergen[];
-  // ステージ別の形状・調理法（未定義のステージでは登場させない食材もあるため optional）
-  stageForms: Partial<Record<PhaseKey, string>>;
+  // ステージ別の調理情報（未定義のステージでは登場させない食材もあるため optional）
+  stageForms: Partial<Record<PhaseKey, StageForm>>;
   // true の場合、食材チェック・印刷記録には出るが日次提案(generateSuggestion)では
   // 自動的に提案しない。えび・かに・そば・くるみのように離乳食期には積極的に
   // 勧められない食材や、ごま・きな粉のように「ひとつまみ」レベルの薬味であって

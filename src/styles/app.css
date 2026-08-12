@@ -344,7 +344,18 @@
 .meal-cook-label {
   font-size: 11px;
   color: var(--text-muted);
+  margin-bottom: 6px;
+  line-height: 1.6;
+}
+
+.meal-tip-label {
+  font-size: 11px;
+  color: var(--accent-text);
+  background: var(--accent-light);
+  border-radius: 8px;
+  padding: 6px 8px;
   margin-bottom: 10px;
+  line-height: 1.6;
 }
 
 .meal-card--recorded {

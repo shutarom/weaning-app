@@ -277,21 +277,24 @@ export function generateSuggestion(params: {
 
     const items: PlanItem[] = [];
     if (staple) {
+      const form = staple.stageForms[phase.key]!;
       items.push({
         cat: "staple", ingredientId: staple.id,
-        text: `${staple.name}（${staple.stageForms[phase.key]}）`, grams: stapleG,
+        text: `${staple.name}（${form.cook}）`, grams: stapleG, tip: form.tip,
       });
     }
     if (veg) {
+      const form = veg.stageForms[phase.key]!;
       items.push({
         cat: "veg", ingredientId: veg.id,
-        text: `${veg.name}（${veg.stageForms[phase.key]}）`, grams: vegG,
+        text: `${veg.name}（${form.cook}）`, grams: vegG, tip: form.tip,
       });
     }
     if (protein) {
+      const form = protein.stageForms[phase.key]!;
       items.push({
         cat: "protein", ingredientId: protein.id,
-        text: `${protein.name}（${protein.stageForms[phase.key]}）`, grams: proteinG,
+        text: `${protein.name}（${form.cook}）`, grams: proteinG, tip: form.tip,
       });
     }
 

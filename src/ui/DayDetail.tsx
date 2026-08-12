@@ -308,10 +308,21 @@ function MealCard(props: {
         ))}
       </div>
 
-      {/* 調理法 */}
+      {/* 調理法（食材ごと） */}
       <div className="meal-cook-label">
-        {meal.items[0]?.text.match(/（(.+)）/)?.[1] ?? ""}
+        {meal.items.map((it, i) => (
+          <div key={i}>{it.text.match(/（(.+)）/)?.[1] ?? ""}</div>
+        ))}
       </div>
+
+      {/* 食べさせ方の工夫 */}
+      {meal.items.some((it) => it.tip) && (
+        <div className="meal-tip-label">
+          {meal.items.filter((it) => it.tip).map((it, i) => (
+            <div key={i}>💡 {it.tip}</div>
+          ))}
+        </div>
+      )}
 
       {/* 実績入力（今日以前のみ） */}
       {isPast && (
