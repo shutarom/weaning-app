@@ -6,7 +6,8 @@ const KEY = "weaning_app_v2"; // v1から変えてOK（安全に移行できる�
 // ✅ store更新通知（App/Calendarがこれを受けて即時再描画）
 export const STORE_CHANGED_EVENT_NAME = "weaning_store_changed";
 function notifyStoreChanged() {
-  window.dispatchEvent(new Event(STORE_CHANGED_EVENT_NAME));
+  // profileStore/ingredientStore と同じ理由でディスパッチをマイクロタスクまで遅延させる。
+  queueMicrotask(() => window.dispatchEvent(new Event(STORE_CHANGED_EVENT_NAME)));
 }
 
 type StoreShape = {

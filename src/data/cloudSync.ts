@@ -2,7 +2,7 @@ import { doc, setDoc, collection, onSnapshot } from "firebase/firestore";
 import { auth, db } from "../lib/firebase";
 import { getHouseholdId } from "../lib/householdState";
 import { getDeviceId } from "../lib/deviceId";
-import type { DailyLog, DailyPlan } from "../domain/types";
+import type { BabyProfile, DailyLog, DailyPlan, IngredientStatus } from "../domain/types";
 
 function activeContext() {
   const hid = getHouseholdId();
@@ -29,6 +29,23 @@ export async function syncPlanToCloud(dateIso: string, plan: DailyPlan): Promise
   if (!ctx) return;
   const ref = doc(db, "households", ctx.hid, "plans", dateIso);
   await setDoc(ref, stripUndefined({ ...plan, dateIso, updatedAt: Date.now(), updatedBy: ctx.uid }), { merge: true });
+}
+
+export async function syncProfileToCloud(profile: BabyProfile): Promise<void> {
+  const ctx = activeContext();
+  if (!ctx) return;
+  const ref = doc(db, "households", ctx.hid, "profile", "baby");
+  await setDoc(ref, stripUndefined({ ...profile, updatedAt: Date.now(), updatedBy: ctx.uid }), { merge: true });
+}
+
+export async function syncIngredientStatusToCloud(
+  ingredientId: string,
+  entry: IngredientStatus
+): Promise<void> {
+  const ctx = activeContext();
+  if (!ctx) return;
+  const ref = doc(db, "households", ctx.hid, "ingredientStatus", ingredientId);
+  await setDoc(ref, stripUndefined({ ...entry, updatedAt: Date.now(), updatedBy: ctx.uid }), { merge: true });
 }
 
 // ===== リアルタイム購読 =====
@@ -84,4 +101,30 @@ export function subscribeToCloud(
   );
 
   return () => { unsubLogs(); unsubPlans(); };
+}
+
+export function subscribeProfile(
+  hid: string,
+  onData: (profile: BabyProfile | null) => void
+): () => void {
+  return onSnapshot(
+    doc(db, "households", hid, "profile", "baby"),
+    (snap) => onData(snap.exists() ? (snap.data() as BabyProfile) : null),
+    () => onData(null)
+  );
+}
+
+export function subscribeIngredientStatuses(
+  hid: string,
+  onData: (statuses: Record<string, IngredientStatus>) => void
+): () => void {
+  return onSnapshot(
+    collection(db, "households", hid, "ingredientStatus"),
+    (snap) => {
+      const statuses: Record<string, IngredientStatus> = {};
+      snap.forEach((d) => { statuses[d.id] = d.data() as IngredientStatus; });
+      onData(statuses);
+    },
+    () => onData({})
+  );
 }

@@ -43,6 +43,14 @@ service cloud.firestore {
       match /plans/{dateIso} {
         allow read, write: if isMember(hid);
       }
+
+      match /profile/{docId} {
+        allow read, write: if isMember(hid);
+      }
+
+      match /ingredientStatus/{ingredientId} {
+        allow read, write: if isMember(hid);
+      }
     }
 
     match /{document=**} {

@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { Calendar } from "../ui/Calendar";
 import { DayDetail } from "../ui/DayDetail";
+import { IngredientChecklist } from "../ui/IngredientChecklist";
+import { AllergyManagement } from "../ui/AllergyManagement";
+import { AiSuggest } from "../ui/AiSuggest";
 import {
   addMonths,
   clampToMonthFirst,
@@ -11,38 +14,25 @@ import {
   startOfWeek,
 } from "../domain/date";
 import { loadAllLogs, STORE_CHANGED_EVENT_NAME, mergeFromCloud } from "../data/localStore";
-import { subscribeToCloud, type SyncStatus } from "../data/cloudSync";
+import { subscribeToCloud, subscribeProfile, subscribeIngredientStatuses, type SyncStatus } from "../data/cloudSync";
+import { loadProfile, saveProfile, mergeProfileFromCloud, PROFILE_CHANGED_EVENT_NAME } from "../data/profileStore";
+import {
+  loadIngredientStatuses,
+  setIngredientStatus,
+  mergeIngredientStatusesFromCloud,
+  INGREDIENT_STATUS_CHANGED_EVENT_NAME,
+} from "../data/ingredientStore";
+import { INGREDIENT_MASTER } from "../domain/ingredients";
 import { phaseFromMonths } from "../domain/suggestionEngine";
 import type { DailyLog } from "../domain/types";
 import { Onboarding } from "../ui/Onboarding";
 import { getHouseholdId } from "../lib/householdState";
 import { useAuthUser } from "../lib/useAuthUser";
 
-const BIRTHDAY_KEY = "weaning_birthday";
-const WEANING_START_KEY = "weaning_start_date";
+type ViewMode = "calendar" | "settings" | "ingredients" | "allergies" | "ai";
 
 function todayIso(): string {
   return toIso(new Date());
-}
-
-function loadBirthday(): string {
-  return localStorage.getItem(BIRTHDAY_KEY) ?? "";
-}
-
-function saveBirthday(iso: string) {
-  localStorage.setItem(BIRTHDAY_KEY, iso);
-}
-
-function loadWeaningStart(): string {
-  return localStorage.getItem(WEANING_START_KEY) ?? "";
-}
-
-function saveWeaningStart(iso: string) {
-  if (iso) {
-    localStorage.setItem(WEANING_START_KEY, iso);
-  } else {
-    localStorage.removeItem(WEANING_START_KEY);
-  }
 }
 
 function SyncBadge({ status }: { status: SyncStatus }) {
@@ -56,16 +46,67 @@ function SyncBadge({ status }: { status: SyncStatus }) {
   );
 }
 
+function MenuOverlay(props: { onSelect: (v: ViewMode) => void; onClose: () => void }) {
+  const items: { view: ViewMode; icon: string; label: string }[] = [
+    { view: "settings", icon: "⚙️", label: "設定" },
+    { view: "ingredients", icon: "🥕", label: "食材チェック" },
+    { view: "allergies", icon: "🚨", label: "アレルギー管理" },
+    { view: "ai", icon: "✨", label: "AI献立提案" },
+  ];
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)",
+        display: "flex", alignItems: "flex-start", justifyContent: "flex-end", zIndex: 50,
+      }}
+      onClick={props.onClose}
+    >
+      <div
+        style={{
+          background: "var(--panel, #fff)", borderRadius: 12, margin: "56px 12px 0 0",
+          minWidth: 200, boxShadow: "0 8px 24px rgba(0,0,0,0.2)", overflow: "hidden",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {items.map((it) => (
+          <button
+            key={it.view}
+            onClick={() => props.onSelect(it.view)}
+            style={{
+              display: "flex", alignItems: "center", gap: 10, width: "100%",
+              padding: "12px 16px", border: "none", background: "none",
+              fontSize: 14, textAlign: "left", cursor: "pointer",
+            }}
+          >
+            <span>{it.icon}</span>
+            <span>{it.label}</span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function SettingsScreen(props: {
   birthdayIso: string;
   weaningStartIso: string;
+  allergies: string[];
   householdId: string;
-  onSave: (birthday: string, weaningStart: string) => void;
+  onSave: (birthday: string, weaningStart: string, allergies: string[]) => void;
   onClose: () => void;
 }) {
   const [birthday, setBirthday] = useState(props.birthdayIso);
   const [weaningStart, setWeaningStart] = useState(props.weaningStartIso);
+  const [allergyInput, setAllergyInput] = useState("");
+  const [allergies, setAllergies] = useState(props.allergies);
   const [copied, setCopied] = useState(false);
+
+  const addAllergy = () => {
+    const trimmed = allergyInput.trim();
+    if (!trimmed || allergies.includes(trimmed)) return;
+    setAllergies([...allergies, trimmed]);
+    setAllergyInput("");
+  };
 
   return (
     <div className="birthday-setup" style={{ gap: 16, textAlign: "left", alignItems: "stretch" }}>
@@ -142,13 +183,46 @@ function SettingsScreen(props: {
         )}
       </div>
 
+      {/* アレルギー */}
+      <div className="onboarding-card">
+        <div className="onboarding-card-title">🚨 アレルギー食材</div>
+        <p style={{ fontSize: 13, color: "var(--text-muted)", margin: "0 0 10px" }}>
+          AI献立提案で自動的に除外されます。詳しい管理は「アレルギー管理」画面から
+        </p>
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+          {allergies.map((a) => (
+            <span key={a} style={{
+              display: "inline-flex", alignItems: "center", gap: 6,
+              background: "#fee2e2", color: "#b91c1c", borderRadius: 999, padding: "4px 10px", fontSize: 13,
+            }}>
+              {a}
+              <button
+                onClick={() => setAllergies(allergies.filter((x) => x !== a))}
+                style={{ border: "none", background: "none", color: "#b91c1c", cursor: "pointer" }}
+              >
+                ✕
+              </button>
+            </span>
+          ))}
+        </div>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className="birthday-input"
+            style={{ flex: 1 }}
+            placeholder="例: 卵"
+            value={allergyInput}
+            onChange={(e) => setAllergyInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") addAllergy(); }}
+          />
+          <button className="onboarding-btn" onClick={addAllergy}>追加</button>
+        </div>
+      </div>
+
       <button
         className="btn-primary"
         disabled={!birthday}
         onClick={() => {
-          saveBirthday(birthday);
-          saveWeaningStart(weaningStart);
-          props.onSave(birthday, weaningStart);
+          props.onSave(birthday, weaningStart, allergies);
           props.onClose();
         }}
       >
@@ -181,9 +255,9 @@ export default function App() {
 }
 
 function MainApp({ householdId }: { householdId: string }) {
-  const [birthdayIso, setBirthdayIso] = useState<string>(() => loadBirthday());
-  const [weaningStartIso, setWeaningStartIso] = useState<string>(() => loadWeaningStart());
-  const [showSettings, setShowSettings] = useState(!loadBirthday());
+  const [profile, setProfile] = useState(() => loadProfile());
+  const [view, setView] = useState<ViewMode>(() => (loadProfile().birthdayIso ? "calendar" : "settings"));
+  const [menuOpen, setMenuOpen] = useState(false);
   const [selectedIso, setSelectedIso] = useState<string>(todayIso());
   const [mode, setMode] = useState<"month" | "week">("month");
   const [viewDate, setViewDate] = useState<Date>(clampToMonthFirst(new Date()));
@@ -191,6 +265,7 @@ function MainApp({ householdId }: { householdId: string }) {
   const [syncStatus, setSyncStatus] = useState<SyncStatus>("connecting");
 
   const [logsMap, setLogsMap] = useState<Record<string, DailyLog>>(() => loadAllLogs());
+  const [ingredientStatuses, setIngredientStatuses] = useState(() => loadIngredientStatuses());
 
   useEffect(() => {
     const handler = () => setLogsMap(loadAllLogs());
@@ -198,7 +273,19 @@ function MainApp({ householdId }: { householdId: string }) {
     return () => window.removeEventListener(STORE_CHANGED_EVENT_NAME, handler);
   }, []);
 
-  // Firestore リアルタイム同期
+  useEffect(() => {
+    const handler = () => setProfile(loadProfile());
+    window.addEventListener(PROFILE_CHANGED_EVENT_NAME, handler);
+    return () => window.removeEventListener(PROFILE_CHANGED_EVENT_NAME, handler);
+  }, []);
+
+  useEffect(() => {
+    const handler = () => setIngredientStatuses(loadIngredientStatuses());
+    window.addEventListener(INGREDIENT_STATUS_CHANGED_EVENT_NAME, handler);
+    return () => window.removeEventListener(INGREDIENT_STATUS_CHANGED_EVENT_NAME, handler);
+  }, []);
+
+  // Firestore リアルタイム同期（ログ・プラン）
   useEffect(() => {
     const unsub = subscribeToCloud(
       householdId,
@@ -209,6 +296,15 @@ function MainApp({ householdId }: { householdId: string }) {
     );
     return unsub;
   }, [householdId]);
+
+  // Firestore リアルタイム同期（プロフィール・食材ステータス）
+  useEffect(() => {
+    const unsubProfile = subscribeProfile(householdId, mergeProfileFromCloud);
+    const unsubIngredients = subscribeIngredientStatuses(householdId, mergeIngredientStatusesFromCloud);
+    return () => { unsubProfile(); unsubIngredients(); };
+  }, [householdId]);
+
+  const { birthdayIso, weaningStartIso, allergies } = profile;
 
   // 離乳食開始日が設定されている場合はそこからのステージ計算
   // 未設定の場合は月齢から計算（従来動作）
@@ -302,14 +398,55 @@ function MainApp({ householdId }: { householdId: string }) {
     setMobilePanel("detail");
   };
 
-  if (showSettings) {
+  if (view === "settings") {
     return (
       <SettingsScreen
         birthdayIso={birthdayIso}
         weaningStartIso={weaningStartIso}
+        allergies={allergies}
         householdId={householdId}
-        onSave={(b, ws) => { setBirthdayIso(b); setWeaningStartIso(ws); }}
-        onClose={() => setShowSettings(false)}
+        onSave={(b, ws, al) => saveProfile({ birthdayIso: b, weaningStartIso: ws, allergies: al })}
+        onClose={() => setView("calendar")}
+      />
+    );
+  }
+
+  if (view === "ingredients") {
+    return (
+      <IngredientChecklist
+        statuses={ingredientStatuses}
+        onChange={(id, status, notes) => setIngredientStatus(id, status, notes)}
+        onClose={() => setView("calendar")}
+      />
+    );
+  }
+
+  if (view === "allergies") {
+    return (
+      <AllergyManagement
+        allergies={allergies}
+        statuses={ingredientStatuses}
+        onSaveAllergies={(al) => saveProfile({ allergies: al })}
+        onClose={() => setView("calendar")}
+      />
+    );
+  }
+
+  if (view === "ai") {
+    const safeIngredients = INGREDIENT_MASTER
+      .filter((i) => ingredientStatuses[i.id]?.status === "safe")
+      .map((i) => i.name);
+    const notTriedIngredients = INGREDIENT_MASTER
+      .filter((i) => (ingredientStatuses[i.id]?.status ?? "not_tried") === "not_tried")
+      .map((i) => i.name);
+    return (
+      <AiSuggest
+        ageMonths={ageMonths}
+        phase={phase}
+        allergies={allergies}
+        safeIngredients={safeIngredients}
+        notTriedIngredients={notTriedIngredients}
+        onClose={() => setView("calendar")}
       />
     );
   }
@@ -332,13 +469,20 @@ function MainApp({ householdId }: { householdId: string }) {
           </span>
           <button
             className="icon-btn"
-            onClick={() => setShowSettings(true)}
-            title="設定"
+            onClick={() => setMenuOpen(true)}
+            title="メニュー"
           >
-            ⚙️
+            ☰
           </button>
         </div>
       </header>
+
+      {menuOpen && (
+        <MenuOverlay
+          onSelect={(v) => { setView(v); setMenuOpen(false); }}
+          onClose={() => setMenuOpen(false)}
+        />
+      )}
 
       <div className="controls">
         <div className="mode-btns">

@@ -52,3 +52,45 @@ export type DailyLog = {
   dayMemo?: string;
   updatedAt?: number;
 };
+
+// ===== 赤ちゃんプロフィール（世帯単位でFirestore同期） =====
+export type BabyProfile = {
+  birthdayIso: string;
+  weaningStartIso: string;
+  allergies: string[];
+  updatedAt?: number;
+};
+
+// ===== 食材マスター・ステータス =====
+export type IngredientCategory = "carb" | "protein" | "vitamin" | "other";
+
+export type Ingredient = {
+  id: string;
+  name: string;
+  category: IngredientCategory;
+  earliestStage: PhaseKey;
+  allergenRisk: boolean;
+};
+
+export type IngredientStatusValue = "not_tried" | "safe" | "allergic";
+
+export type IngredientStatus = {
+  status: IngredientStatusValue;
+  notes?: string;
+  updatedAt?: number;
+};
+
+// ===== AI献立提案 =====
+export type AiRecipe = {
+  menuTitle: string;
+  category: "carb" | "protein" | "vitamin" | "combined";
+  ingredientsList: string[];
+  instructions: string;
+  point: string;
+};
+
+export type AiSuggestionResult = {
+  stage: string;
+  message: string;
+  recipes: AiRecipe[];
+};
