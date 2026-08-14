@@ -18,6 +18,20 @@ export type MealPlan = {
   name: MealName;
   items: PlanItem[];
   totalGrams: number;
+  recipeName?: string; // レシピから生成された場合のみ（一品の料理名）
+  recipeNote?: string; // レシピのひとことコツ（ある場合のみ）
+};
+
+// ===== オフラインの簡易レシピライブラリ =====
+// 複数食材を組み合わせた「一品」として提案するための最小限のデータ。
+// 各食材はそのステージの安全フィルタ(アレルゲン・卒業判定・苦手食材)を
+// 独立提案の食材と同じ基準で通ったものだけが使われる（generateSuggestion参照）。
+export type Recipe = {
+  id: string;
+  name: string;
+  stage: PhaseKey; // このレシピを提案してよい唯一のステージ
+  ingredientIds: string[]; // INGREDIENT_MASTER内のid。stage="5_6"は2品(staple+veg)、それ以外は3品(staple+veg+protein)
+  note?: string; // 合わせ技としてのひとことコツ（任意）
 };
 
 export type DailyPlan = {

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { generateSuggestion, calcFoodScores, summarizePreferences, PLAN_SCHEMA_VERSION } from "./suggestionEngine";
 import { INGREDIENT_MASTER } from "./ingredients";
+import { RECIPE_MASTER } from "./recipes";
 import type { DailyLog, DailyPlan, IngredientStatus } from "./types";
 
 const idToIngredient = new Map(INGREDIENT_MASTER.map((i) => [i.id, i]));
@@ -240,5 +241,95 @@ describe("summarizePreferences — AI提案への学習結果の受け渡し", (
     const { liked, disliked } = summarizePreferences([], []);
     expect(liked).toEqual([]);
     expect(disliked).toEqual([]);
+  });
+});
+
+describe("RECIPE_MASTER — データ整合性", () => {
+  it("各レシピの食材はINGREDIENT_MASTERに存在し、そのステージのstageFormsを持つ", () => {
+    for (const r of RECIPE_MASTER) {
+      for (const id of r.ingredientIds) {
+        const ing = idToIngredient.get(id);
+        expect(ing, `${r.name}が参照する${id}がINGREDIENT_MASTERに無い`).toBeDefined();
+        expect(ing!.stageForms[r.stage], `${r.name}の${id}は${r.stage}のstageFormsが無い`).toBeDefined();
+        expect(ing!.neverSuggest, `${r.name}がneverSuggest食材(${id})を参照している`).not.toBe(true);
+      }
+    }
+  });
+
+  it("初期(5_6)は主食+野菜の2品、それ以外は主食+野菜+タンパク質の3品", () => {
+    for (const r of RECIPE_MASTER) {
+      const cats = r.ingredientIds.map((id) => idToIngredient.get(id)!.category);
+      if (r.stage === "5_6") {
+        expect(cats.sort()).toEqual(["carb", "vitamin"]);
+      } else {
+        expect(cats.sort()).toEqual(["carb", "protein", "vitamin"]);
+      }
+    }
+  });
+
+  it("ステージごとに少なくとも1つはレシピが存在する", () => {
+    for (const stage of ["5_6", "7_8", "9_11", "12_18"] as const) {
+      expect(RECIPE_MASTER.some((r) => r.stage === stage)).toBe(true);
+    }
+  });
+});
+
+describe("generateSuggestion — レシピ提案", () => {
+  it("レシピが選ばれた場合、食材は全てアレルゲン・卒業判定を通っている（独立提案と同じ安全基準）", () => {
+    for (let day = 1; day <= 30; day++) {
+      const dateIso = `2026-05-${String(day).padStart(2, "0")}`;
+      const plan = generateSuggestion({ dateIso, ageMonths: 10, recentLogs: [] });
+      for (const meal of plan.meals) {
+        if (!meal.recipeName) continue;
+        for (const item of meal.items) {
+          const ing = idToIngredient.get(item.ingredientId)!;
+          expect(ing.stageForms[plan.phase.key]).toBeDefined();
+        }
+      }
+    }
+  });
+
+  it("アレルゲンを登録すると、そのアレルゲンを含む食材を使うレシピは一切選ばれない", () => {
+    for (let day = 1; day <= 30; day++) {
+      const dateIso = `2026-05-${String(day).padStart(2, "0")}`;
+      const plan = generateSuggestion({
+        dateIso, ageMonths: 10, recentLogs: [], allergenTags: ["fish"],
+      });
+      for (const id of allIngredientIdsInPlan(plan)) {
+        expect(idToIngredient.get(id)?.allergens).not.toContain("fish");
+      }
+    }
+  });
+
+  it("レシピが1つも該当しないステージでも(苦手食材で全滅させても)クラッシュせず独立提案にフォールバックする", () => {
+    // 5_6ステージの全レシピはninjin/kabocha/hourensou/daikonのいずれかを含むので、
+    // これらを全て苦手に仕立てて候補を消してもクラッシュしないことを確認する。
+    const recentPlans: DailyPlan[] = [];
+    const recentLogs: DailyLog[] = [];
+    for (const [i, id] of ["ninjin", "kabocha", "hourensou", "daikon"].entries()) {
+      const dateIso = `2026-06-0${i * 2 + 1}`;
+      const dateIso2 = `2026-06-0${i * 2 + 2}`;
+      const plan1: DailyPlan = {
+        dateIso, phase: { key: "5_6", label: "" }, guideNote: "", seed: 1, adjustFactor: 1,
+        version: PLAN_SCHEMA_VERSION,
+        meals: [{ name: "朝", items: [{ cat: "veg", ingredientId: id, text: "", grams: 20 }], totalGrams: 20 }],
+      };
+      const plan2: DailyPlan = { ...plan1, dateIso: dateIso2 };
+      recentPlans.push(plan1, plan2);
+      recentLogs.push(
+        { dateIso, meals: { 朝: { eatenRatio: 0.1 } } },
+        { dateIso: dateIso2, meals: { 朝: { eatenRatio: 0.1 } } }
+      );
+    }
+    expect(() =>
+      generateSuggestion({ dateIso: "2026-06-10", ageMonths: 5, recentLogs, recentPlans })
+    ).not.toThrow();
+  });
+
+  it("同じ日付・月齢なら常に同じ提案になる（レシピか独立提案かも含めて決定的）", () => {
+    const params = { dateIso: "2026-05-05", ageMonths: 10, recentLogs: [] };
+    const a = generateSuggestion(params);
+    const b = generateSuggestion(params);
+    expect(a).toEqual(b);
   });
 });

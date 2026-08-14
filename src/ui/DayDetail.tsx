@@ -299,6 +299,14 @@ function MealCard(props: {
         </div>
       </div>
 
+      {/* レシピ名（複数食材を組み合わせた一品として提案された場合のみ） */}
+      {meal.recipeName && (
+        <div className="meal-recipe-name">
+          🍽️ {meal.recipeName}
+          {meal.recipeNote && <span className="meal-recipe-note">（{meal.recipeNote}）</span>}
+        </div>
+      )}
+
       {/* 提案食材リスト */}
       <div className="meal-items-row">
         {meal.items.map((it, i) => (

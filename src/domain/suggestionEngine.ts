@@ -1,10 +1,13 @@
 import type {
   Allergen, DailyLog, DailyPlan, MealName, Phase, PhaseKey,
-  FoodCategory, PlanItem, Ingredient, IngredientStatus,
+  FoodCategory, PlanItem, Ingredient, IngredientStatus, Recipe,
 } from "./types";
 import { INGREDIENT_MASTER } from "./ingredients";
+import { RECIPE_MASTER } from "./recipes";
 
 const MEALS: MealName[] = ["朝", "昼", "夕"];
+
+const ingredientById = new Map(INGREDIENT_MASTER.map((i) => [i.id, i]));
 
 // プラン生成ロジックの世代番号。安全フィルタ(アレルゲン・月齢)に関わる変更を
 // 加えたときは必ず上げる。getOrCreatePlan はこの番号より古い未来日/当日プランを
@@ -35,6 +38,13 @@ const BASE_GUIDE: Record<PhaseKey, Guide> = {
 const FOOD_CATEGORY_TO_INGREDIENT_CATEGORY: Record<FoodCategory, Ingredient["category"]> = {
   staple: "carb",
   veg: "vitamin",
+  protein: "protein",
+};
+// 逆引き。レシピの食材からグラム数・チップ種別を決めるのに使う
+// （レシピは carb/vitamin/protein の食材のみを参照する前提。"other" は使わない）。
+const INGREDIENT_CATEGORY_TO_FOOD_CATEGORY: Partial<Record<Ingredient["category"], FoodCategory>> = {
+  carb: "staple",
+  vitamin: "veg",
   protein: "protein",
 };
 
@@ -83,6 +93,29 @@ function candidatesFor(
     if (ing.allergens.some((a) => allergenTags.includes(a))) return false;
     if (ingredientStatuses[ing.id]?.status === "allergic") return false;
     return true;
+  });
+}
+
+// そのステージで安全に提案できるレシピ(複数食材を組み合わせた一品)を絞り込む。
+// 食材ごとの判定基準はcandidatesForと同じ(アレルゲン・卒業判定・アレルギー記録・苦手)。
+// 1つでも食材が引っかかればレシピ全体を候補から外す。
+function eligibleRecipes(
+  stage: PhaseKey,
+  allergenTags: Allergen[],
+  ingredientStatuses: Record<string, IngredientStatus>,
+  disliked: Set<string>
+): Recipe[] {
+  return RECIPE_MASTER.filter((r) => {
+    if (r.stage !== stage) return false;
+    return r.ingredientIds.every((id) => {
+      const ing = ingredientById.get(id);
+      if (!ing) return false;
+      if (!ing.stageForms[stage]) return false;
+      if (ing.allergens.some((a) => allergenTags.includes(a))) return false;
+      if (ingredientStatuses[id]?.status === "allergic") return false;
+      if (disliked.has(id)) return false;
+      return true;
+    });
   });
 }
 
@@ -150,10 +183,9 @@ export function summarizePreferences(
   recentPlans: DailyPlan[]
 ): { liked: string[]; disliked: string[] } {
   const scores = calcFoodScores(recentLogs, recentPlans);
-  const idToName = new Map(INGREDIENT_MASTER.map((i) => [i.id, i.name]));
   return {
-    liked: [...getLikedFoods(scores)].map((id) => idToName.get(id) ?? id),
-    disliked: [...getDislikedFoods(scores)].map((id) => idToName.get(id) ?? id),
+    liked: [...getLikedFoods(scores)].map((id) => ingredientById.get(id)?.name ?? id),
+    disliked: [...getDislikedFoods(scores)].map((id) => ingredientById.get(id)?.name ?? id),
   };
 }
 
@@ -265,45 +297,67 @@ export function generateSuggestion(params: {
   const vegCandidates     = candidatesFor("veg",     phase.key, allergenTags, ingredientStatuses);
   const proteinCandidates = candidatesFor("protein", phase.key, allergenTags, ingredientStatuses);
 
+  const recipeCandidates = eligibleRecipes(phase.key, allergenTags, ingredientStatuses, disliked);
+
   const meals = activeMeals.map((name) => {
+    const wobble = 0.9 + rand() * 0.2;
+    const gramsFor: Record<FoodCategory, number> = {
+      staple:  Math.round(guide.categories.staple  * adj * wobble),
+      veg:     Math.round(guide.categories.veg     * adj * wobble),
+      protein: Math.round(guide.categories.protein * adj * wobble),
+    };
+
+    // 該当ステージで安全なレシピがあれば半々の確率で「一品」として提案する。
+    // 無ければ従来どおり主食・野菜・タンパク質を独立に選ぶ。
+    if (recipeCandidates.length > 0 && rand() < 0.5) {
+      const recipe = recipeCandidates[Math.floor(rand() * recipeCandidates.length)];
+      const items: PlanItem[] = recipe.ingredientIds.map((id) => {
+        const ing = ingredientById.get(id)!;
+        const foodCat = INGREDIENT_CATEGORY_TO_FOOD_CATEGORY[ing.category]!;
+        const form = ing.stageForms[phase.key]!;
+        return {
+          cat: foodCat, ingredientId: id,
+          text: `${ing.name}（${form.cook}）`, grams: gramsFor[foodCat], tip: form.tip,
+        };
+      });
+      return {
+        name, items, totalGrams: items.reduce((a, b) => a + b.grams, 0),
+        recipeName: recipe.name, recipeNote: recipe.note,
+      };
+    }
+
     const staple  = pickWeighted(stapleCandidates,  rand, liked, disliked);
     const veg     = pickWeighted(vegCandidates,     rand, liked, disliked);
     const protein = itemsPerMeal >= 3 ? pickWeighted(proteinCandidates, rand, liked, disliked) : undefined;
-
-    const wobble = 0.9 + rand() * 0.2;
-    const stapleG  = Math.round(guide.categories.staple  * adj * wobble);
-    const vegG     = Math.round(guide.categories.veg     * adj * wobble);
-    const proteinG = Math.round(guide.categories.protein * adj * wobble);
 
     const items: PlanItem[] = [];
     if (staple) {
       const form = staple.stageForms[phase.key]!;
       items.push({
         cat: "staple", ingredientId: staple.id,
-        text: `${staple.name}（${form.cook}）`, grams: stapleG, tip: form.tip,
+        text: `${staple.name}（${form.cook}）`, grams: gramsFor.staple, tip: form.tip,
       });
     }
     if (veg) {
       const form = veg.stageForms[phase.key]!;
       items.push({
         cat: "veg", ingredientId: veg.id,
-        text: `${veg.name}（${form.cook}）`, grams: vegG, tip: form.tip,
+        text: `${veg.name}（${form.cook}）`, grams: gramsFor.veg, tip: form.tip,
       });
     }
     if (protein) {
       const form = protein.stageForms[phase.key]!;
       items.push({
         cat: "protein", ingredientId: protein.id,
-        text: `${protein.name}（${form.cook}）`, grams: proteinG, tip: form.tip,
+        text: `${protein.name}（${form.cook}）`, grams: gramsFor.protein, tip: form.tip,
       });
     }
 
     return { name, items, totalGrams: items.reduce((a, b) => a + b.grams, 0) };
   });
 
-  const idToName = new Map(INGREDIENT_MASTER.map((i) => [i.id, i.name]));
-  const dislikedNames = [...disliked].map((id) => idToName.get(id) ?? id);
-  const likedNames = [...liked].map((id) => idToName.get(id) ?? id);
+  const dislikedNames = [...disliked].map((id) => ingredientById.get(id)?.name ?? id);
+  const likedNames = [...liked].map((id) => ingredientById.get(id)?.name ?? id);
 
   const insight = buildInsight(adj, dislikedNames, likedNames, logCount);
 
