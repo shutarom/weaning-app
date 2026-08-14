@@ -15,15 +15,14 @@ const firebaseConfig = {
 
 export const app = initializeApp(firebaseConfig);
 
-// ローカル開発時はreCAPTCHAが動かないドメインでも通せるよう、
-// Firebase公式のデバッグトークン機構を使う（本番ビルドには影響しない）。
-if (import.meta.env.DEV) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  (self as any).FIREBASE_APPCHECK_DEBUG_TOKEN = true;
-}
-
+// App Checkは本番ビルドのみ有効化する。ローカル開発でreCAPTCHA v3を通すには
+// デバッグトークンをFirebase Consoleへ毎回手動登録する必要があり実用的でない上、
+// 未登録のまま有効化しているとFirestoreへの読み書きがサイレントに失敗し続ける
+// （実際にこのセッション中、複数回この問題で開発が止まった）。本番のHostingドメインでは
+// 通常のreCAPTCHA v3検証がデバッグトークン無しで自動的に機能するため、開発時は
+// App Check自体を初期化しない。
 const recaptchaSiteKey = import.meta.env.VITE_RECAPTCHA_V3_SITE_KEY;
-if (recaptchaSiteKey) {
+if (!import.meta.env.DEV && recaptchaSiteKey) {
   initializeAppCheck(app, {
     provider: new ReCaptchaV3Provider(recaptchaSiteKey),
     isTokenAutoRefreshEnabled: true,
