@@ -1,9 +1,17 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 
 export default defineConfig({
   base: "/",
+
+  test: {
+    // セキュリティルールのテストは Firestore エミュレータ(Java必須)がないと
+    // 動かないため、通常の `npm test` からは外す。`npm run test:rules` で実行する。
+    exclude: ["**/node_modules/**", "**/dist/**", "rules-tests/**"],
+  },
+
   plugins: [
     react(),
     VitePWA({
