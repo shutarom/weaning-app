@@ -38,7 +38,13 @@ service cloud.firestore {
               get(/databases/$(database)/documents/households/$(hid)).data.ownerUid == request.auth.uid)
             || request.resource.data.role == 'member'
           );
-        allow update, delete: if false;
+        // 本人が自分のメンバー文書を同じ role で書き直すことだけ許可する。
+        // クライアント側では既存メンバーなら書き込まないようにしているが、
+        // 復旧経路が permission-denied で完全に詰まるのを防ぐための保険。
+        // role を書き換える更新は許可しない（member から owner への昇格を防ぐ）。
+        allow update: if isSignedIn() && request.auth.uid == uid &&
+          request.resource.data.role == resource.data.role;
+        allow delete: if false;
       }
 
       // ===== 複数の赤ちゃんに対応した現行のデータ構造 =====

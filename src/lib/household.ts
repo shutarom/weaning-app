@@ -32,7 +32,17 @@ export async function joinHousehold(hid: string, uid: string) {
   const snap = await getDoc(doc(db, "households", hid));
   if (!snap.exists()) throw new Error("その招待コードの家族が見つからない");
 
-  await setDoc(doc(db, "households", hid, "members", uid), {
+  // すでにメンバーなら書き込まない。
+  //
+  // メンバー文書は作成しか許可していない(firestore.rules)ため、既存メンバーが
+  // 同じ招待コードで入り直すと setDoc が update と見なされて permission-denied になる。
+  // 匿名認証のuidは端末に保持されるので、「同期エラー→再参加」で復旧しようとすると
+  // 必ずこの経路に入り、復旧手段そのものが失敗していた。
+  const memberRef = doc(db, "households", hid, "members", uid);
+  const member = await getDoc(memberRef);
+  if (member.exists()) return hid;
+
+  await setDoc(memberRef, {
     role: "member",
     createdAt: serverTimestamp(),
   });

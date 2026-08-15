@@ -17,7 +17,10 @@ import {
   startOfWeek,
 } from "../domain/date";
 import { loadAllLogs, STORE_CHANGED_EVENT_NAME, mergeFromCloud, getRecentLogs, getRecentPlans } from "../data/localStore";
-import { subscribeToCloud, subscribeProfile, subscribeIngredientStatuses, renameBabyByIdInCloud, type SyncStatus } from "../data/cloudSync";
+import {
+  subscribeToCloud, subscribeProfile, subscribeIngredientStatuses, renameBabyByIdInCloud,
+  getWriteStatus, SYNC_WRITE_STATUS_EVENT, type SyncStatus,
+} from "../data/cloudSync";
 import {
   loadProfile, saveProfile, addAllergy, removeAllergy,
   addAllergenTag, removeAllergenTag,
@@ -503,7 +506,22 @@ function BabyScopedApp({
   // 起動直後に「今日の食事」が見えるようにする（B-5: 今日ホーム画面の簡易実装）。
   // デスクトップでは元々カレンダーと詳細を同時表示しているため影響しない。
   const [mobilePanel, setMobilePanel] = useState<"calendar" | "detail">("detail");
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>("connecting");
+  const [readStatus, setReadStatus] = useState<SyncStatus>("connecting");
+  // 書き込みの失敗は購読(読み取り)のエラーとは独立に起きる。読み取りが正常でも
+  // 書き込みだけ弾かれていると記録がクラウドに上がらないため、両方を見て表示する。
+  const [writeStatus, setWriteStatus] = useState<SyncStatus | null>(() => getWriteStatus());
+
+  useEffect(() => {
+    const handler = () => setWriteStatus(getWriteStatus());
+    window.addEventListener(SYNC_WRITE_STATUS_EVENT, handler);
+    return () => window.removeEventListener(SYNC_WRITE_STATUS_EVENT, handler);
+  }, []);
+
+  // 権限エラーは最優先で出す（放置すると記録が永久に同期されないため）
+  const syncStatus: SyncStatus =
+    readStatus === "permission_error" || writeStatus === "permission_error"
+      ? "permission_error"
+      : writeStatus === "offline" ? "offline" : readStatus;
 
   const [logsMap, setLogsMap] = useState<Record<string, DailyLog>>(() => loadAllLogs());
   const [ingredientStatuses, setIngredientStatuses] = useState(() => loadIngredientStatuses());
@@ -534,7 +552,7 @@ function BabyScopedApp({
       (cloudLogs, cloudPlans) => {
         mergeFromCloud(cloudLogs, cloudPlans);
       },
-      setSyncStatus
+      setReadStatus
     );
     return unsub;
   }, [householdId, babyId]);
@@ -543,8 +561,8 @@ function BabyScopedApp({
   // permission-denied（この端末がmembersに存在しない等）はログ・プランの購読とは
   // 独立に検知しうるため、こちらのエラーも同じ syncStatus にまとめて反映する。
   useEffect(() => {
-    const unsubProfile = subscribeProfile(householdId, babyId, mergeProfileFromCloud, setSyncStatus);
-    const unsubIngredients = subscribeIngredientStatuses(householdId, babyId, mergeIngredientStatusesFromCloud, setSyncStatus);
+    const unsubProfile = subscribeProfile(householdId, babyId, mergeProfileFromCloud, setReadStatus);
+    const unsubIngredients = subscribeIngredientStatuses(householdId, babyId, mergeIngredientStatusesFromCloud, setReadStatus);
     return () => { unsubProfile(); unsubIngredients(); };
   }, [householdId, babyId]);
 

@@ -40,6 +40,46 @@ export function toMillis(val: unknown): number {
   return 0;
 }
 
+// ===== 書き込みの失敗を画面に出すための仕組み =====
+//
+// 以前は書き込みの失敗が .catch(console.error) で握り潰されており、同期バッジは
+// 購読(読み取り)のエラーしか見ていなかった。そのため「読み取りは通るが書き込みだけ
+// permission-denied」という状態だと、バッジは正常のまま記録がクラウドに一切
+// 上がらない、という無言の同期停止が起きていた。書き込み側の状態もここで集約する。
+
+export const SYNC_WRITE_STATUS_EVENT = "weaning_sync_write_status";
+
+let writeStatus: SyncStatus | null = null;
+
+/** 直近の書き込みが失敗していれば、その状態を返す。正常なら null。 */
+export function getWriteStatus(): SyncStatus | null {
+  return writeStatus;
+}
+
+function setWriteStatus(next: SyncStatus | null) {
+  if (writeStatus === next) return;
+  writeStatus = next;
+  queueMicrotask(() => window.dispatchEvent(new Event(SYNC_WRITE_STATUS_EVENT)));
+}
+
+/**
+ * クラウドへの書き込みを実行し、成否を同期状態へ反映する。
+ * 呼び出し側が握り潰しても、失敗したことは画面に残る。
+ */
+async function runWrite(op: () => Promise<void>): Promise<void> {
+  try {
+    await op();
+    setWriteStatus(null);
+  } catch (e) {
+    const code = (e as FirestoreError)?.code;
+    // オフライン時はSDKがローカルにキューして後で送るため、異常として扱わない。
+    // permission-denied は放置すると永久に同期されないので必ず表面化させる。
+    if (code === "permission-denied") setWriteStatus("permission_error");
+    else if (code) setWriteStatus("offline");
+    throw e;
+  }
+}
+
 // ===== 書き込み =====
 // households/{hid}/babies/{babyId}/... 配下に書き込む。
 // プロフィール(生年月日・アレルギー等)は babies/{babyId} ドキュメント自体が兼ねる
@@ -49,14 +89,14 @@ export async function syncLogToCloud(dateIso: string, log: DailyLog): Promise<vo
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId, "logs", dateIso);
-  await setDoc(ref, stripUndefined({ ...log, dateIso, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
+  await runWrite(() => setDoc(ref, stripUndefined({ ...log, dateIso, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true }));
 }
 
 export async function syncPlanToCloud(dateIso: string, plan: DailyPlan): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId, "plans", dateIso);
-  await setDoc(ref, stripUndefined({ ...plan, dateIso, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
+  await runWrite(() => setDoc(ref, stripUndefined({ ...plan, dateIso, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true }));
 }
 
 /**
@@ -67,24 +107,24 @@ export async function syncProfilePatchToCloud(patch: Partial<BabyProfile>): Prom
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId);
-  await setDoc(ref, stripUndefined({ ...patch, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
+  await runWrite(() => setDoc(ref, stripUndefined({ ...patch, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true }));
 }
 
 /** 切り替えずに任意のbabyIdの名前を変更する（スイッチャーUIから他の赤ちゃんを改名する用途） */
 export async function renameBabyByIdInCloud(hid: string, babyId: string, name: string): Promise<void> {
   const ref = doc(db, "households", hid, "babies", babyId);
-  await setDoc(ref, { name, updatedAt: serverTimestamp() }, { merge: true });
+  await runWrite(() => setDoc(ref, { name, updatedAt: serverTimestamp() }, { merge: true }));
 }
 
 export async function addAllergyToCloud(name: string): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId);
-  await setDoc(
+  await runWrite(() => setDoc(
     ref,
     { allergies: arrayUnion(name), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
     { merge: true }
-  );
+  ));
 }
 
 export async function removeAllergyFromCloud(name: string): Promise<void> {
@@ -93,33 +133,33 @@ export async function removeAllergyFromCloud(name: string): Promise<void> {
   const ref = babyDoc(ctx.hid, ctx.babyId);
   // ドキュメントが存在しない可能性もあるため setDoc+merge ではなく updateDoc は使わず、
   // arrayRemove は存在しないドキュメントに対しても setDoc(merge) でも安全に無視される。
-  await setDoc(
+  await runWrite(() => setDoc(
     ref,
     { allergies: arrayRemove(name), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
     { merge: true }
-  );
+  ));
 }
 
 export async function addAllergenTagToCloud(tag: Allergen): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId);
-  await setDoc(
+  await runWrite(() => setDoc(
     ref,
     { allergenTags: arrayUnion(tag), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
     { merge: true }
-  );
+  ));
 }
 
 export async function removeAllergenTagFromCloud(tag: Allergen): Promise<void> {
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId);
-  await setDoc(
+  await runWrite(() => setDoc(
     ref,
     { allergenTags: arrayRemove(tag), updatedAt: serverTimestamp(), updatedBy: ctx.uid },
     { merge: true }
-  );
+  ));
 }
 
 export async function syncIngredientStatusToCloud(
@@ -129,7 +169,7 @@ export async function syncIngredientStatusToCloud(
   const ctx = activeContext();
   if (!ctx) return;
   const ref = babyDoc(ctx.hid, ctx.babyId, "ingredientStatus", ingredientId);
-  await setDoc(ref, stripUndefined({ ...entry, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true });
+  await runWrite(() => setDoc(ref, stripUndefined({ ...entry, updatedAt: serverTimestamp(), updatedBy: ctx.uid }), { merge: true }));
 }
 
 // ===== リアルタイム購読 =====
