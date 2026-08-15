@@ -34,13 +34,21 @@ export async function joinHousehold(hid: string, uid: string) {
 
   // すでにメンバーなら書き込まない。
   //
-  // メンバー文書は作成しか許可していない(firestore.rules)ため、既存メンバーが
-  // 同じ招待コードで入り直すと setDoc が update と見なされて permission-denied になる。
+  // メンバー文書の更新は role を変えない場合しか許可していない(firestore.rules)ため、
+  // 既存メンバーが同じ招待コードで入り直すと setDoc が update と見なされる。
   // 匿名認証のuidは端末に保持されるので、「同期エラー→再参加」で復旧しようとすると
-  // 必ずこの経路に入り、復旧手段そのものが失敗していた。
+  // 必ずこの経路に入る。
+  //
+  // この存在確認自体が失敗しても参加を止めないこと。ルールの反映待ちなどで
+  // 読めない状況はありうるが、そこで例外を投げると新しい端末が参加できなくなる。
   const memberRef = doc(db, "households", hid, "members", uid);
-  const member = await getDoc(memberRef);
-  if (member.exists()) return hid;
+  let alreadyMember = false;
+  try {
+    alreadyMember = (await getDoc(memberRef)).exists();
+  } catch {
+    alreadyMember = false; // 判断できないときは作成を試みる
+  }
+  if (alreadyMember) return hid;
 
   await setDoc(memberRef, {
     role: "member",

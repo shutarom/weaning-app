@@ -26,7 +26,11 @@ service cloud.firestore {
       allow delete: if isSignedIn() && resource.data.ownerUid == request.auth.uid;
 
       match /members/{uid} {
-        allow read: if isMember(hid);
+        // 自分自身のメンバー文書は、まだメンバーでなくても読めるようにする。
+        // isMember() は「メンバー文書が存在すること」なので、これを参加前の
+        // 存在確認に使うと「メンバーでないと参加できているか確認できない」という
+        // 循環になり、新しい端末が一切参加できなくなる。
+        allow read: if isMember(hid) || (isSignedIn() && request.auth.uid == uid);
         // 自分自身のメンバードキュメントのみ作成可能。
         // role: 'owner' を名乗れるのは households/{hid}.ownerUid が自分の場合のみ。
         // role: 'member' での参加(招待コード=hidを知っていれば参加可能)はクライアントから
