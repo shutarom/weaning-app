@@ -322,7 +322,8 @@ function MealCard(props: {
       <div className="meal-items-row">
         {meal.items.map((it, i) => (
           <span key={i} className="meal-item-chip">
-            {it.text.split("（")[0]} <span className="meal-item-gram">{it.grams}g</span>
+            {it.text.split("（")[0]}{" "}
+            <span className="meal-item-gram">{it.amountLabel ?? `${it.grams}g`}</span>
           </span>
         ))}
       </div>

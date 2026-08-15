@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { generateSuggestion, calcFoodScores, summarizePreferences, phaseFromMonths, PLAN_SCHEMA_VERSION } from "./suggestionEngine";
-import { INGREDIENT_MASTER } from "./ingredients";
+import { INGREDIENT_MASTER, PORTION_GROUP_BY_ID, ALLERGENS, FRUIT_IDS } from "./ingredients";
 import { RECIPE_MASTER } from "./recipes";
 import type { DailyLog, DailyPlan, IngredientStatus } from "./types";
 
@@ -256,20 +256,43 @@ describe("RECIPE_MASTER — データ整合性", () => {
     }
   });
 
-  it("初期(5_6)は主食+野菜の2品、それ以外は主食+野菜+タンパク質の3品", () => {
+  it("初期(5_6)は主食+野菜の2品か、たんぱく質を足した3品。それ以外は必ず3品", () => {
     for (const r of RECIPE_MASTER) {
-      const cats = r.ingredientIds.map((id) => idToIngredient.get(id)!.category);
+      const cats = r.ingredientIds.map((id) => idToIngredient.get(id)!.category).sort();
       if (r.stage === "5_6") {
-        expect(cats.sort()).toEqual(["carb", "vitamin"]);
+        // 2品なら主食+野菜、3品なら主食+野菜+たんぱく質
+        expect(
+          JSON.stringify(cats) === JSON.stringify(["carb", "vitamin"]) ||
+          JSON.stringify(cats) === JSON.stringify(["carb", "protein", "vitamin"]),
+          `${r.id} のカテゴリ構成が不正: ${cats.join(",")}`
+        ).toBe(true);
       } else {
-        expect(cats.sort()).toEqual(["carb", "protein", "vitamin"]);
+        expect(cats, `${r.id} のカテゴリ構成が不正`).toEqual(["carb", "protein", "vitamin"]);
       }
     }
   });
 
-  it("ステージごとに少なくとも1つはレシピが存在する", () => {
+  it("1つのレシピに主食が2つ入っていない", () => {
+    for (const r of RECIPE_MASTER) {
+      const carbs = r.ingredientIds.filter((id) => idToIngredient.get(id)!.category === "carb");
+      expect(carbs, `${r.id} に主食が複数ある: ${carbs.join(",")}`).toHaveLength(1);
+    }
+  });
+
+  it("レシピidと名前が重複していない", () => {
+    expect(new Set(RECIPE_MASTER.map((r) => r.id)).size).toBe(RECIPE_MASTER.length);
+    expect(new Set(RECIPE_MASTER.map((r) => r.name)).size).toBe(RECIPE_MASTER.length);
+  });
+
+  it("同じ食材の組み合わせのレシピが重複していない", () => {
+    const combos = RECIPE_MASTER.map((r) => `${r.stage}:${[...r.ingredientIds].sort().join(",")}`);
+    expect(new Set(combos).size).toBe(combos.length);
+  });
+
+  it("各ステージに献立が単調にならない数のレシピがある", () => {
     for (const stage of ["5_6", "7_8", "9_11", "12_18"] as const) {
-      expect(RECIPE_MASTER.some((r) => r.stage === stage)).toBe(true);
+      const n = RECIPE_MASTER.filter((r) => r.stage === stage).length;
+      expect(n, `${stage} のレシピが少なすぎる (${n}件)`).toBeGreaterThanOrEqual(10);
     }
   });
 });
@@ -496,5 +519,266 @@ describe("generateSuggestion — 初期の主食はおかゆが基本", () => {
     }
     expect(total).toBeGreaterThan(0);
     expect(gayu / total).toBeGreaterThan(0.5);
+  });
+});
+
+describe("目安量 — 厚生労働省「授乳・離乳の支援ガイド」の値に沿っているか", () => {
+  // 同ガイド「離乳の進め方の目安」の1回あたりの量。[下限, 上限]
+  // ゆらぎ(wobble ±10%)を考慮し、実測の中央付近がこの範囲に収まることを見る。
+  const EXPECTED: Record<string, Record<number, [number, number]>> = {
+    // 食材id: { 月齢: [下限, 上限] }
+    tofu:          { 8: [30, 40], 10: [40, 50], 15: [46, 58] },
+    shiromizakana: { 8: [10, 15], 10: [13, 17], 15: [15, 22] },
+    sasami:        { 8: [10, 15], 10: [13, 17], 15: [15, 22] },
+    yogurt:        { 8: [50, 70], 10: [70, 90], 15: [88, 112] },
+    natto:         { 8: [15, 22], 10: [17, 23], 15: [21, 29] },
+    ninjin:        { 8: [20, 30], 10: [30, 40], 15: [40, 50] },
+    gayu_7:        { 8: [50, 80] },
+    gayu_5:        { 10: [75, 95] },
+    nanhan:        { 15: [75, 95] },
+  };
+
+  it("食材ごとの目安量が公的な範囲に収まる", () => {
+    const seen = new Set<string>();
+    for (const [id, byMonth] of Object.entries(EXPECTED)) {
+      for (const [months, [lo, hi]] of Object.entries(byMonth)) {
+        for (let d = 1; d <= 28; d++) {
+          for (const rev of [0, 1, 2, 3]) {
+            const plan = generateSuggestion({
+              dateIso: `2026-05-${String(d).padStart(2, "0")}`,
+              ageMonths: Number(months), recentLogs: [], revision: rev,
+            });
+            for (const meal of plan.meals) {
+              for (const item of meal.items) {
+                if (item.ingredientId !== id) continue;
+                seen.add(`${id}@${months}`);
+                expect(item.grams,
+                  `${id} (${months}ヶ月) が目安 ${lo}〜${hi}g の範囲外`).toBeGreaterThanOrEqual(lo);
+                expect(item.grams,
+                  `${id} (${months}ヶ月) が目安 ${lo}〜${hi}g の範囲外`).toBeLessThanOrEqual(hi);
+              }
+            }
+          }
+        }
+      }
+    }
+    // 実際に検証できた組み合わせがあること（提案されず素通りしていたら意味がない）
+    expect(seen.size).toBeGreaterThanOrEqual(10);
+  });
+
+  it("同じたんぱく質でも食材ごとに量が変わる（豆腐は魚より多い）", () => {
+    const grams = (id: string, months: number) => {
+      for (let d = 1; d <= 28; d++) {
+        for (const rev of [0, 1, 2, 3]) {
+          const plan = generateSuggestion({
+            dateIso: `2026-06-${String(d).padStart(2, "0")}`,
+            ageMonths: months, recentLogs: [], revision: rev,
+          });
+          for (const m of plan.meals) {
+            const hit = m.items.find((i) => i.ingredientId === id);
+            if (hit) return hit.grams;
+          }
+        }
+      }
+      throw new Error(`${id} が提案されなかった`);
+    };
+    expect(grams("tofu", 10)).toBeGreaterThan(grams("shiromizakana", 10) * 2);
+  });
+
+  it("卵は個数の表記で示され、卵黄と全卵で表記が違う", () => {
+    const labelOf = (id: string, months: number) => {
+      for (let d = 1; d <= 28; d++) {
+        for (const rev of [0, 1, 2, 3]) {
+          const plan = generateSuggestion({
+            dateIso: `2026-07-${String(d).padStart(2, "0")}`,
+            ageMonths: months, recentLogs: [], revision: rev,
+          });
+          for (const m of plan.meals) {
+            const hit = m.items.find((i) => i.ingredientId === id);
+            if (hit) return hit.amountLabel;
+          }
+        }
+      }
+      return undefined;
+    };
+    expect(labelOf("ranou", 8)).toBe("卵黄1個");
+    expect(labelOf("zenran", 8)).toBe("全卵1/3個");
+    expect(labelOf("zenran", 10)).toBe("全卵1/2個");
+  });
+});
+
+describe("卵黄の開始時期", () => {
+  it("卵黄は初期(5-6ヶ月)から提案されうる（公的ガイドに合わせた前倒し）", () => {
+    const ranou = INGREDIENT_MASTER.find((i) => i.id === "ranou")!;
+    expect(ranou.earliestStage).toBe("5_6");
+    expect(ranou.stageForms["5_6"]).toBeDefined();
+  });
+
+  it("初期の卵黄には医師相談の注意書きが付いている", () => {
+    const tip = INGREDIENT_MASTER.find((i) => i.id === "ranou")!.stageForms["5_6"]!.tip ?? "";
+    expect(tip).toContain("かかりつけ医");
+  });
+
+  it("卵アレルギーを登録すると卵黄・全卵は初期でも提案されない", () => {
+    for (let d = 1; d <= 28; d++) {
+      const plan = generateSuggestion({
+        dateIso: `2026-08-${String(d).padStart(2, "0")}`,
+        ageMonths: 6, recentLogs: [], allergenTags: ["egg"], weaningDay: 40,
+      });
+      const ids = allIngredientIdsInPlan(plan);
+      expect(ids).not.toContain("ranou");
+      expect(ids).not.toContain("zenran");
+    }
+  });
+});
+
+describe("INGREDIENT_MASTER — データ整合性", () => {
+  it("idが重複していない", () => {
+    const ids = INGREDIENT_MASTER.map((i) => i.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("食材名が重複していない", () => {
+    const names = INGREDIENT_MASTER.map((i) => i.name);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("earliestStage のステージには必ず stageForms がある", () => {
+    for (const ing of INGREDIENT_MASTER) {
+      expect(ing.stageForms[ing.earliestStage], `${ing.id} に ${ing.earliestStage} の調理情報がない`).toBeDefined();
+    }
+  });
+
+  it("stageForms は earliestStage より前のステージを持たない", () => {
+    const order = ["5_6", "7_8", "9_11", "12_18"] as const;
+    for (const ing of INGREDIENT_MASTER) {
+      const earliest = order.indexOf(ing.earliestStage);
+      for (const s of order) {
+        if (ing.stageForms[s] && order.indexOf(s) < earliest) {
+          throw new Error(`${ing.id}: ${s} は earliestStage(${ing.earliestStage}) より前`);
+        }
+      }
+    }
+  });
+
+  it("cook は空でなく、日本語として成立している", () => {
+    for (const ing of INGREDIENT_MASTER) {
+      for (const [stage, form] of Object.entries(ing.stageForms)) {
+        expect(form!.cook.length, `${ing.id}/${stage} の cook が短すぎる`).toBeGreaterThan(6);
+        // 英字が混ざっていないこと（過去に "部position" のような混入があった）
+        expect(/[A-Za-z]{3,}/.test(form!.cook), `${ing.id}/${stage} の cook に英単語が混入`).toBe(false);
+        // ハングル・簡体字特有の文字が混ざっていないこと
+        expect(/[\uAC00-\uD7AF]/.test(form!.cook), `${ing.id}/${stage} の cook にハングルが混入`).toBe(false);
+      }
+    }
+  });
+
+  it("アレルゲンを持つ食材のアレルゲンは定義済みのタグである", () => {
+    const valid = new Set(ALLERGENS);
+    for (const ing of INGREDIENT_MASTER) {
+      for (const a of ing.allergens) expect(valid.has(a), `${ing.id} の ${a}`).toBe(true);
+    }
+  });
+
+  it("PORTION_GROUP_BY_ID に存在しない食材idが登録されていない", () => {
+    const ids = new Set(INGREDIENT_MASTER.map((i) => i.id));
+    for (const id of Object.keys(PORTION_GROUP_BY_ID)) {
+      expect(ids.has(id), `PORTION_GROUP_BY_ID の ${id} は食材マスターに無い`).toBe(true);
+    }
+  });
+
+  it("提案対象の主食・たんぱく質には目安量グループが割り当てられている", () => {
+    for (const ing of INGREDIENT_MASTER) {
+      if (ing.neverSuggest) continue;
+      if (ing.category !== "carb" && ing.category !== "protein") continue;
+      expect(
+        ing.portionGroup ?? PORTION_GROUP_BY_ID[ing.id],
+        `${ing.id} (${ing.name}) に目安量グループが無い`
+      ).toBeDefined();
+    }
+  });
+
+  it("各ステージに十分な数の提案候補がある", () => {
+    for (const stage of ["5_6", "7_8", "9_11", "12_18"] as const) {
+      const n = INGREDIENT_MASTER.filter((i) => !i.neverSuggest && i.stageForms[stage]).length;
+      expect(n, `${stage} の候補が少ない (${n}件)`).toBeGreaterThanOrEqual(25);
+    }
+  });
+});
+
+describe("献立の質 — 同日の重複と偏り", () => {
+  it("同じ日の食事に同じレシピが2回出ない", () => {
+    for (const months of [8, 10, 15]) {
+      for (let d = 1; d <= 28; d++) {
+        for (const rev of [0, 1, 2]) {
+          const plan = generateSuggestion({
+            dateIso: `2026-09-${String(d).padStart(2, "0")}`,
+            ageMonths: months, recentLogs: [], revision: rev,
+          });
+          const names = plan.meals.map((m) => m.recipeName).filter(Boolean);
+          expect(new Set(names).size, `${months}ヶ月 9/${d} でレシピが重複`).toBe(names.length);
+        }
+      }
+    }
+  });
+
+  it("同じ日の食事で主食が全部同じにならない（3回食のとき）", () => {
+    let allSame = 0, total = 0;
+    for (let d = 1; d <= 28; d++) {
+      const plan = generateSuggestion({
+        dateIso: `2026-10-${String(d).padStart(2, "0")}`, ageMonths: 10, recentLogs: [],
+      });
+      const staples = plan.meals.map((m) => m.items.find((i) => i.cat === "staple")?.ingredientId);
+      total++;
+      if (new Set(staples).size === 1) allSame++;
+    }
+    // 候補が十分あるので、全食同じ主食になる日はごく一部に留まるはず
+    expect(allSame / total).toBeLessThan(0.2);
+  });
+
+  it("のり・わかめ・きのこが野菜と同じ量で出ない", () => {
+    const maxFor = (id: string) => {
+      let max = 0;
+      for (let d = 1; d <= 28; d++) {
+        for (const rev of [0, 1, 2, 3, 4]) {
+          const plan = generateSuggestion({
+            dateIso: `2026-11-${String(d).padStart(2, "0")}`,
+            ageMonths: 15, recentLogs: [], revision: rev,
+          });
+          for (const m of plan.meals) {
+            const hit = m.items.find((i) => i.ingredientId === id);
+            if (hit) max = Math.max(max, hit.grams);
+          }
+        }
+      }
+      return max;
+    };
+    // のりは板のり1枚が約3g。野菜と同じ40g台で出たら明らかにおかしい。
+    const nori = maxFor("nori");
+    if (nori > 0) expect(nori, "のりの量が多すぎる").toBeLessThanOrEqual(4);
+    const wakame = maxFor("wakame");
+    if (wakame > 0) expect(wakame, "わかめの量が多すぎる").toBeLessThanOrEqual(10);
+    const maitake = maxFor("maitake");
+    if (maitake > 0) expect(maitake, "きのこの量が多すぎる").toBeLessThanOrEqual(25);
+  });
+
+  it("野菜枠が果物ばかりにならない", () => {
+    let fruit = 0, total = 0;
+    for (const months of [8, 10, 15]) {
+      for (let d = 1; d <= 28; d++) {
+        const plan = generateSuggestion({
+          dateIso: `2026-12-${String(d).padStart(2, "0")}`, ageMonths: months, recentLogs: [],
+        });
+        for (const m of plan.meals) {
+          for (const i of m.items) {
+            if (i.cat !== "veg") continue;
+            total++;
+            if (FRUIT_IDS.has(i.ingredientId)) fruit++;
+          }
+        }
+      }
+    }
+    expect(total).toBeGreaterThan(50);
+    expect(fruit / total, "野菜枠に占める果物の割合が高すぎる").toBeLessThan(0.4);
   });
 });

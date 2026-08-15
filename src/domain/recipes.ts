@@ -1,11 +1,17 @@
 import type { Recipe } from "./types";
 
-// オフラインの簡易レシピライブラリ。各ステージ4品、小規模な手作りセット。
+// オフラインの簡易レシピライブラリ。
 // 参照する食材(ingredientIds)は必ず INGREDIENT_MASTER に存在し、
 // 該当ステージの stageForms を持つものだけを使う(generateSuggestion側で
 // 実行時にも安全フィルタを通すため、ここでの整合性は vitest で担保する)。
+//
+// 構成のルール:
+//  - 初期(5_6) は「主食+野菜」の2品を基本とする。開始1ヶ月を過ぎてたんぱく質を
+//    足す時期に入ると3品のレシピも候補に入る(進行段階のフィルタは呼び出し側)。
+//  - 中期以降は「主食+野菜+たんぱく質」の3品。
+//  - 1食で使う主食は1つ。いも類を主食として使う場合はがゆを入れない。
 export const RECIPE_MASTER: Recipe[] = [
-  // ===== 初期(5-6ヶ月) : 主食+野菜の2品 =====
+  // ===== 初期(5-6ヶ月) : 主食+野菜 =====
   {
     id: "r_ninjin_gayu",
     name: "にんじんの10倍がゆ",
@@ -33,6 +39,127 @@ export const RECIPE_MASTER: Recipe[] = [
     stage: "5_6",
     ingredientIds: ["jagaimo", "daikon"],
     note: "どちらもくせが少なく、離乳食に慣れていない時期でも食べやすい",
+  },
+  {
+    id: "r_komatsuna_gayu",
+    name: "小松菜の10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "komatsuna"],
+    note: "葉先だけを使うとえぐみが出にくい",
+  },
+  {
+    id: "r_toumorokoshi_gayu",
+    name: "とうもろこしの10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "toumorokoshi"],
+    note: "薄皮が残るとむせやすいので、必ず裏ごしする",
+  },
+  {
+    id: "r_tamanegi_gayu",
+    name: "玉ねぎの甘み10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "tamanegi"],
+    note: "じっくり加熱すると辛みが抜けて甘くなる",
+  },
+  {
+    id: "r_broccoli_gayu",
+    name: "ブロッコリーの10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "broccoli"],
+    note: "穂先だけを使い、なめらかになるまですりつぶす",
+  },
+  {
+    id: "r_cabbage_gayu",
+    name: "キャベツの10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "cabbage"],
+    note: "やわらかい葉の部分を選び、繊維を断つように刻んでから加熱する",
+  },
+  {
+    id: "r_satsumaimo_ringo",
+    name: "さつまいもとりんごのペースト",
+    stage: "5_6",
+    ingredientIds: ["satsumaimo", "ringo"],
+    note: "りんごは加熱すると甘みが増し、酸味がやわらぐ",
+  },
+  {
+    id: "r_jagaimo_ninjin",
+    name: "じゃがいもとにんじんのポタージュ風",
+    stage: "5_6",
+    ingredientIds: ["jagaimo", "ninjin"],
+    note: "ゆで汁でのばすととろみの調整がしやすい",
+  },
+  {
+    id: "r_satsumaimo_banana",
+    name: "さつまいもとバナナのなめらかペースト",
+    stage: "5_6",
+    ingredientIds: ["satsumaimo", "banana"],
+    note: "どちらも甘みが強いので、湯でのばして薄めに仕上げる",
+  },
+  {
+    id: "r_satoimo_gayu",
+    name: "さといもの10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "satoimo"],
+    note: "ぬめりが気になる場合は下ゆでしてから使う",
+  },
+  {
+    id: "r_jagaimo_cabbage",
+    name: "じゃがいもとキャベツのうらごし",
+    stage: "5_6",
+    ingredientIds: ["jagaimo", "cabbage"],
+    note: "くせが少なく、初めての組み合わせでも食べやすい",
+  },
+  {
+    id: "r_satsumaimo_komatsuna",
+    name: "さつまいもと小松菜のうらごし",
+    stage: "5_6",
+    ingredientIds: ["satsumaimo", "komatsuna"],
+    note: "さつまいもの甘みで青菜が食べやすくなる",
+  },
+
+  // 初期のうち、たんぱく質を足す時期(開始1ヶ月以降)に入ってから登場する3品
+  {
+    id: "r_gayu_ninjin_tofu",
+    name: "にんじんと豆腐の10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "ninjin", "tofu"],
+    note: "豆腐は加熱してから、なめらかに裏ごしして混ぜる",
+  },
+  {
+    id: "r_gayu_kabocha_shiromizakana",
+    name: "かぼちゃと白身魚の10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "kabocha", "shiromizakana"],
+    note: "魚はパサつきやすいので、ゆで汁でしっとりのばす",
+  },
+  {
+    id: "r_gayu_hourensou_tofu",
+    name: "ほうれん草と豆腐の10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "hourensou", "tofu"],
+    note: "豆腐のなめらかさで青菜が飲み込みやすくなる",
+  },
+  {
+    id: "r_gayu_daikon_shirasu",
+    name: "大根としらすの10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "daikon", "shirasu"],
+    note: "しらすは必ず湯通しして塩分を抜いてから使う",
+  },
+  {
+    id: "r_gayu_broccoli_ranou",
+    name: "ブロッコリーと卵黄の10倍がゆ",
+    stage: "5_6",
+    ingredientIds: ["gayu_10", "broccoli", "ranou"],
+    note: "卵黄は20分以上固ゆでにし、ごく少量から試す",
+  },
+  {
+    id: "r_jagaimo_ninjin_shiromizakana",
+    name: "じゃがいもとにんじんの白身魚うらごし",
+    stage: "5_6",
+    ingredientIds: ["jagaimo", "ninjin", "shiromizakana"],
+    note: "いもでとろみがつくので、魚が口の中でまとまりやすい",
   },
 
   // ===== 中期(7-8ヶ月) : 主食+野菜+タンパク質の3品 =====
@@ -64,6 +191,90 @@ export const RECIPE_MASTER: Recipe[] = [
     ingredientIds: ["satsumaimo", "hourensou", "shirasu"],
     note: "しらすは塩抜きしてから混ぜる",
   },
+  {
+    id: "r_udon_ninjin_tofu",
+    name: "にんじん豆腐うどん",
+    stage: "7_8",
+    ingredientIds: ["udon", "ninjin", "tofu"],
+    note: "うどんは表示より長めにゆで、2〜3mmに刻む",
+  },
+  {
+    id: "r_somen_tomato_shirasu",
+    name: "トマトとしらすのにゅうめん",
+    stage: "7_8",
+    ingredientIds: ["somen", "tomato", "shirasu"],
+    note: "そうめんは塩分があるのでゆでたあと水でよく洗う",
+  },
+  {
+    id: "r_pan_kabocha_yogurt",
+    name: "かぼちゃパンがゆのヨーグルト添え",
+    stage: "7_8",
+    ingredientIds: ["shokupan", "kabocha", "yogurt"],
+    note: "ヨーグルトは加糖でないものを選ぶ",
+  },
+  {
+    id: "r_gayu_broccoli_sasami",
+    name: "ブロッコリーとささみの7倍がゆ",
+    stage: "7_8",
+    ingredientIds: ["gayu_7", "broccoli", "sasami"],
+    note: "ささみはゆで汁ごとすりつぶすとパサつかない",
+  },
+  {
+    id: "r_gayu_komatsuna_ranou",
+    name: "小松菜と卵黄の7倍がゆ",
+    stage: "7_8",
+    ingredientIds: ["gayu_7", "komatsuna", "ranou"],
+    note: "卵黄はしっかり火を通し、様子を見ながら量を増やす",
+  },
+  {
+    id: "r_jagaimo_tamanegi_shiromizakana",
+    name: "じゃがいもと玉ねぎの白身魚煮",
+    stage: "7_8",
+    ingredientIds: ["jagaimo", "tamanegi", "shiromizakana"],
+    note: "だし汁で煮るとそれだけで十分に味がつく",
+  },
+  {
+    id: "r_udon_cabbage_natto",
+    name: "キャベツと納豆のうどん",
+    stage: "7_8",
+    ingredientIds: ["udon", "cabbage", "natto"],
+    note: "納豆は加熱して細かく刻み、粘りを切ってから混ぜる",
+  },
+  {
+    id: "r_gayu_nasu_tofu",
+    name: "なすと豆腐の7倍がゆ",
+    stage: "7_8",
+    ingredientIds: ["gayu_7", "nasu", "tofu"],
+    note: "なすは皮をむいてアクを抜いてから加熱する",
+  },
+  {
+    id: "r_satsumaimo_ringo_yogurt",
+    name: "さつまいもとりんごのヨーグルト和え",
+    stage: "7_8",
+    ingredientIds: ["satsumaimo", "ringo", "yogurt"],
+    note: "食後のデザート代わりにもなる組み合わせ",
+  },
+  {
+    id: "r_gayu_paprika_zenran",
+    name: "パプリカと卵の7倍がゆ",
+    stage: "7_8",
+    ingredientIds: ["gayu_7", "paprika", "zenran"],
+    note: "パプリカは皮をむくと口当たりがよくなる。卵は中心までしっかり加熱する",
+  },
+  {
+    id: "r_somen_daikon_shiromizakana",
+    name: "大根と白身魚のにゅうめん",
+    stage: "7_8",
+    ingredientIds: ["somen", "daikon", "shiromizakana"],
+    note: "大根はやわらかく煮るとほんのり甘くなる",
+  },
+  {
+    id: "r_gayu_toumorokoshi_sasami",
+    name: "とうもろこしとささみの7倍がゆ",
+    stage: "7_8",
+    ingredientIds: ["gayu_7", "toumorokoshi", "sasami"],
+    note: "とうもろこしの甘みでささみが食べやすくなる",
+  },
 
   // ===== 後期(9-11ヶ月) : 主食+野菜+タンパク質の3品 =====
   {
@@ -94,6 +305,90 @@ export const RECIPE_MASTER: Recipe[] = [
     ingredientIds: ["satsumaimo", "tamanegi", "zenran"],
     note: "卵はしっかり加熱し、初回は少量から",
   },
+  {
+    id: "r_udon_ninjin_torihikiniku",
+    name: "にんじんと鶏ひき肉の煮込みうどん",
+    stage: "9_11",
+    ingredientIds: ["udon", "ninjin", "torihikiniku"],
+    note: "うどんは5〜8mmに刻む。とろみをつけるとすくいやすい",
+  },
+  {
+    id: "r_gayu_okura_natto",
+    name: "オクラ納豆がゆ",
+    stage: "9_11",
+    ingredientIds: ["gayu_5", "okura", "natto"],
+    note: "ねばりが強いので、湯を少し足してのばす",
+  },
+  {
+    id: "r_jagaimo_shimeji_sake",
+    name: "じゃがいもとしめじの鮭そぼろ",
+    stage: "9_11",
+    ingredientIds: ["jagaimo", "shimeji", "sake"],
+    note: "きのこは噛み切りにくいので、必ず細かく刻む",
+  },
+  {
+    id: "r_pan_tomato_tsuna",
+    name: "トマトとツナのパンがゆ",
+    stage: "9_11",
+    ingredientIds: ["shokupan", "tomato", "tsuna"],
+    note: "ツナは水煮を選び、湯通しして油と塩分を落とす",
+  },
+  {
+    id: "r_gayu_renkon_torihikiniku",
+    name: "れんこんと鶏ひき肉のやわらかがゆ",
+    stage: "9_11",
+    ingredientIds: ["gayu_5", "renkon", "torihikiniku"],
+    note: "れんこんはすりおろすと消化しやすく、とろみにもなる",
+  },
+  {
+    id: "r_udon_komatsuna_tofu",
+    name: "小松菜と豆腐のうどん",
+    stage: "9_11",
+    ingredientIds: ["udon", "komatsuna", "tofu"],
+    note: "豆腐は最後に加えて崩れすぎないようにする",
+  },
+  {
+    id: "r_satsumaimo_broccoli_sasami",
+    name: "さつまいもとブロッコリーのささみ和え",
+    stage: "9_11",
+    ingredientIds: ["satsumaimo", "broccoli", "sasami"],
+    note: "さつまいもをつぶして和えると全体がまとまる",
+  },
+  {
+    id: "r_gayu_gobo_torihikiniku",
+    name: "ごぼうと鶏ひき肉のやわらか煮",
+    stage: "9_11",
+    ingredientIds: ["gayu_5", "gobo", "torihikiniku"],
+    note: "ごぼうは繊維が強いので、下ゆでしてから細かく刻む",
+  },
+  {
+    id: "r_somen_nasu_shiromizakana",
+    name: "なすと白身魚のにゅうめん",
+    stage: "9_11",
+    ingredientIds: ["somen", "nasu", "shiromizakana"],
+    note: "なすは皮をむき、やわらかく煮てから合わせる",
+  },
+  {
+    id: "r_gayu_ninjin_zenran",
+    name: "にんじんの卵とじがゆ",
+    stage: "9_11",
+    ingredientIds: ["gayu_5", "ninjin", "zenran"],
+    note: "半熟にせず、卵に完全に火を通す",
+  },
+  {
+    id: "r_jagaimo_asparagus_shirasu",
+    name: "じゃがいもとアスパラのしらす和え",
+    stage: "9_11",
+    ingredientIds: ["jagaimo", "asparagus", "shirasu"],
+    note: "アスパラは穂先のやわらかい部分を使う",
+  },
+  {
+    id: "r_satsumaimo_kiwi_yogurt",
+    name: "さつまいもとキウイのヨーグルト",
+    stage: "9_11",
+    ingredientIds: ["satsumaimo", "kiwi", "yogurt"],
+    note: "キウイは口の周りが赤くなることがあるため、少量から試す",
+  },
 
   // ===== 完了期(12-18ヶ月) : 主食+野菜+タンパク質の3品 =====
   {
@@ -105,10 +400,10 @@ export const RECIPE_MASTER: Recipe[] = [
   },
   {
     id: "r_renkon_tsukune",
-    name: "れんこんと鶏ひき肉のつくね風がゆ",
+    name: "れんこんと鶏ひき肉のつくね風",
     stage: "12_18",
     ingredientIds: ["nanhan", "renkon", "torihikiniku"],
-    note: "れんこんはすりおろして混ぜると食感が優しくなる",
+    note: "れんこんはすりおろして混ぜると食感が優しくなる。手づかみ食べにも向く",
   },
   {
     id: "r_tomato_tsuna_nanhan",
@@ -123,5 +418,89 @@ export const RECIPE_MASTER: Recipe[] = [
     stage: "12_18",
     ingredientIds: ["satsumaimo", "broccoli", "sake"],
     note: "電子レンジで加熱するとホイル蒸しのように仕上がる",
+  },
+  {
+    id: "r_udon_tamanegi_gyubuta",
+    name: "玉ねぎと牛豚そぼろの煮込みうどん",
+    stage: "12_18",
+    ingredientIds: ["udon", "tamanegi", "gyubutahikiniku"],
+    note: "うどんは1〜2cmに切る。すすれないので短めに",
+  },
+  {
+    id: "r_pan_cabbage_zenran",
+    name: "キャベツと卵のパンプディング風",
+    stage: "12_18",
+    ingredientIds: ["shokupan", "cabbage", "zenran"],
+    note: "卵液を吸わせて焼く。冷ましてスティック状に切ると持ちやすい",
+  },
+  {
+    id: "r_nanhan_komatsuna_shirasu",
+    name: "小松菜としらすの混ぜ軟飯",
+    stage: "12_18",
+    ingredientIds: ["nanhan", "komatsuna", "shirasu"],
+    note: "しらすは湯通しして塩分を落とす。小さめのおにぎりにしてもよい",
+  },
+  {
+    id: "r_jagaimo_ninjin_torihikiniku",
+    name: "じゃがいもとにんじんの鶏そぼろ煮",
+    stage: "12_18",
+    ingredientIds: ["jagaimo", "ninjin", "torihikiniku"],
+    note: "だしで煮て、しょうゆは仕上げに数滴だけ",
+  },
+  {
+    id: "r_somen_okura_natto",
+    name: "オクラ納豆そうめん",
+    stage: "12_18",
+    ingredientIds: ["somen", "okura", "natto"],
+    note: "そうめんは短く切る。ねばりでまとまり、すくいやすい",
+  },
+  {
+    id: "r_nanhan_paprika_sasami",
+    name: "パプリカとささみのケチャップ風軟飯",
+    stage: "12_18",
+    ingredientIds: ["nanhan", "paprika", "sasami"],
+    note: "ケチャップは塩分・糖分が多いのでごく少量に留める",
+  },
+  {
+    id: "r_satsumaimo_ringo_yogurt_kanryo",
+    name: "さつまいもとりんごのヨーグルトサラダ",
+    stage: "12_18",
+    ingredientIds: ["satsumaimo", "ringo", "yogurt"],
+    note: "角切りにすると噛む練習になる",
+  },
+  {
+    id: "r_udon_shimeji_shiromizakana",
+    name: "しめじと白身魚のあんかけうどん",
+    stage: "12_18",
+    ingredientIds: ["udon", "shimeji", "shiromizakana"],
+    note: "きのこは噛み切りにくいので細かく刻む",
+  },
+  {
+    id: "r_nanhan_gobo_gyubuta",
+    name: "ごぼうと牛豚そぼろの混ぜご飯",
+    stage: "12_18",
+    ingredientIds: ["nanhan", "gobo", "gyubutahikiniku"],
+    note: "ごぼうは下ゆでしてから細かく刻むと食べやすい",
+  },
+  {
+    id: "r_jagaimo_broccoli_tsuna",
+    name: "じゃがいもとブロッコリーのツナサラダ",
+    stage: "12_18",
+    ingredientIds: ["jagaimo", "broccoli", "tsuna"],
+    note: "マヨネーズは使わず、ゆで汁かヨーグルトでまとめる",
+  },
+  {
+    id: "r_nanhan_nasu_sake",
+    name: "なすと鮭のあんかけ軟飯",
+    stage: "12_18",
+    ingredientIds: ["nanhan", "nasu", "sake"],
+    note: "鮭の小骨を必ず確認する。とろみで飲み込みやすくなる",
+  },
+  {
+    id: "r_pan_banana_yogurt",
+    name: "バナナヨーグルトのフレンチトースト風",
+    stage: "12_18",
+    ingredientIds: ["shokupan", "banana", "yogurt"],
+    note: "砂糖は加えず、バナナの甘みだけで十分",
   },
 ];

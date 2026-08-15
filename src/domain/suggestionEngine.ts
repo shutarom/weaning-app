@@ -1,8 +1,9 @@
 import type {
   Allergen, DailyLog, DailyPlan, MealName, Phase, PhaseKey,
   FoodCategory, PlanItem, Ingredient, IngredientStatus, Recipe,
+  Portion, PortionGroup,
 } from "./types";
-import { INGREDIENT_MASTER } from "./ingredients";
+import { INGREDIENT_MASTER, PORTION_GROUP_BY_ID, FRUIT_IDS } from "./ingredients";
 import { RECIPE_MASTER } from "./recipes";
 
 const MEALS: MealName[] = ["朝", "昼", "夕"];
@@ -13,7 +14,9 @@ const ingredientById = new Map(INGREDIENT_MASTER.map((i) => [i.id, i]));
 // 加えたときは必ず上げる。getOrCreatePlan はこの番号より古い未来日/当日プランを
 // 破棄して再生成する（過去日は実績記録として保持するため対象外）。
 // 4: 離乳食開始日からの進行段階(WeaningStep)を導入。
-export const PLAN_SCHEMA_VERSION = 4;
+// 5: 目安量を食材の種別ごと(PORTION_TABLE)に変更し、厚労省ガイドの数値に合わせた。
+//    卵黄の開始時期を中期から初期へ前倒し。
+export const PLAN_SCHEMA_VERSION = 5;
 
 export function phaseFromMonths(m: number): Phase {
   // 境界はラベルと一致させること。以前は初期が m <= 5 だったため、
@@ -27,16 +30,100 @@ export function phaseFromMonths(m: number): Phase {
 
 type Guide = {
   mealsPerDay: 1 | 2 | 3;
-  categories: Record<FoodCategory, number>;
   note: string;
 };
 
 const BASE_GUIDE: Record<PhaseKey, Guide> = {
-  "5_6":   { mealsPerDay: 1, categories: { staple: 30, veg: 20, protein: 10 }, note: "まずは慣れる。量より継続。" },
-  "7_8":   { mealsPerDay: 2, categories: { staple: 60, veg: 40, protein: 20 }, note: "2回食。食材バリエを増やす。" },
-  "9_11":  { mealsPerDay: 3, categories: { staple: 80, veg: 50, protein: 30 }, note: "3回食。鉄・たんぱく質を意識。" },
-  "12_18": { mealsPerDay: 3, categories: { staple: 100, veg: 60, protein: 40 }, note: "大人食へ近づけつつ無理はしない。" },
+  "5_6":   { mealsPerDay: 1, note: "まずは慣れる。量より継続。" },
+  "7_8":   { mealsPerDay: 2, note: "2回食。食材バリエを増やす。" },
+  "9_11":  { mealsPerDay: 3, note: "3回食。鉄・たんぱく質を意識。" },
+  "12_18": { mealsPerDay: 3, note: "大人食へ近づけつつ無理はしない。" },
 };
+
+/**
+ * 1回あたりの目安量（食材の種別 × ステージ）。null はそのステージでは出さない。
+ *
+ * 出典と根拠:
+ * - 穀類・野菜/果物・魚・肉・豆腐・卵・乳製品は厚生労働省「授乳・離乳の支援ガイド
+ *   (2019年改定版)」の「離乳の進め方の目安」に基づく。同表は幅（例: 中期の穀類
+ *   50〜80g）で示されるため、ここでは中央値を採用している。
+ * - 同表に載っていない、うどん・食パン・いも類・納豆は、穀類の目安量に対する
+ *   一般的なエネルギー換算値を用いた（うどんは中期25〜55g・後期60〜80gが
+ *   全がゆ相当とされる）。表そのものの値ではないため、幅は広めに見て中央寄り。
+ * - 初期(5_6)のたんぱく質は同表に数値の記載がなく「慣れてきたら試してみる」と
+ *   されるため、ごく少量に留めている。
+ *
+ * この数値を変えたら PLAN_SCHEMA_VERSION を上げること。
+ */
+const PORTION_TABLE: Record<PortionGroup, Record<PhaseKey, Portion | null>> = {
+  gayu:      { "5_6": { grams: 30 }, "7_8": { grams: 65 }, "9_11": { grams: 85 }, "12_18": { grams: 85 } },
+  noodle:    { "5_6": null,          "7_8": { grams: 40 }, "9_11": { grams: 70 }, "12_18": { grams: 80 } },
+  bread:     { "5_6": null,          "7_8": { grams: 18 }, "9_11": { grams: 25 }, "12_18": { grams: 30 } },
+  potato:    { "5_6": { grams: 20 }, "7_8": { grams: 50 }, "9_11": { grams: 60 }, "12_18": { grams: 65 } },
+  vegetable: { "5_6": { grams: 20 }, "7_8": { grams: 25 }, "9_11": { grams: 35 }, "12_18": { grams: 45 } },
+  fish:      { "5_6": { grams: 8 },  "7_8": { grams: 13 }, "9_11": { grams: 15 }, "12_18": { grams: 18 } },
+  meat:      { "5_6": null,          "7_8": { grams: 13 }, "9_11": { grams: 15 }, "12_18": { grams: 18 } },
+  tofu:      { "5_6": { grams: 25 }, "7_8": { grams: 35 }, "9_11": { grams: 45 }, "12_18": { grams: 52 } },
+  natto:     { "5_6": null,          "7_8": { grams: 18 }, "9_11": { grams: 20 }, "12_18": { grams: 25 } },
+  dairy:     { "5_6": null,          "7_8": { grams: 60 }, "9_11": { grams: 80 }, "12_18": { grams: 100 } },
+  // チーズは同じ乳製品でも塩分・脂質が濃いため、ヨーグルト等より大幅に少量。
+  cheese:    { "5_6": null,          "7_8": { grams: 12 }, "9_11": { grams: 15 }, "12_18": { grams: 20 } },
+  // レバーは鉄が非常に多く、ビタミンAの過剰も避けたいので少量に留める。
+  liver:     { "5_6": null,          "7_8": null,          "9_11": { grams: 8 },  "12_18": { grams: 10 } },
+  // きのこ・海藻を野菜と同じ量で出すと現実離れする（のり35gは板のり10枚以上）。
+  mushroom:  { "5_6": null,          "7_8": null,          "9_11": { grams: 12 }, "12_18": { grams: 18 } },
+  seaweed:   { "5_6": null,          "7_8": null,          "9_11": { grams: 4 },  "12_18": { grams: 6 } },
+  nori:      { "5_6": null,          "7_8": null,          "9_11": { grams: 1 },  "12_18": { grams: 2 } },
+  // 卵はグラムより個数で示すのが自然なので、表示用のラベルを持たせる。
+  // grams は合計量の計算に使う概算値。
+  // 公的な目安は中期「卵黄1個〜全卵1/3個」・後期「全卵1/2個」・完了期「全卵1/2〜2/3個」。
+  // 卵黄のみの場合と全卵の場合で表記が変わるためグループを分けている。
+  egg_yolk: {
+    "5_6":   { grams: 2,  label: "耳かき1杯〜小さじ1" },
+    "7_8":   { grams: 18, label: "卵黄1個" },
+    "9_11":  { grams: 18, label: "卵黄1個" },
+    "12_18": null, // 完了期は全卵に移行する
+  },
+  egg_whole: {
+    "5_6":   null,
+    "7_8":   { grams: 17, label: "全卵1/3個" },
+    "9_11":  { grams: 25, label: "全卵1/2個" },
+    "12_18": { grams: 30, label: "全卵1/2〜2/3個" },
+  },
+};
+
+// portionGroup が未指定の食材のフォールバック
+const FALLBACK_PORTION_GROUP: Record<Ingredient["category"], PortionGroup> = {
+  carb: "gayu",
+  vitamin: "vegetable",
+  protein: "tofu",
+  other: "vegetable",
+};
+
+function portionGroupOf(ing: Ingredient): PortionGroup {
+  return ing.portionGroup ?? PORTION_GROUP_BY_ID[ing.id] ?? FALLBACK_PORTION_GROUP[ing.category];
+}
+
+/**
+ * その食材のそのステージでの目安量を、食べ残しの補正(adj)・日ごとのゆらぎ(wobble)・
+ * 開始直後の少量スケール(scale)を掛けて返す。
+ * ラベル付き（卵）の場合は、表示は目安のまま据え置き、量の微調整はしない。
+ */
+function portionFor(
+  ing: Ingredient,
+  phaseKey: PhaseKey,
+  adj: number,
+  wobble: number,
+  scale: number
+): Portion {
+  const group = portionGroupOf(ing);
+  const base =
+    PORTION_TABLE[group][phaseKey] ??
+    PORTION_TABLE[FALLBACK_PORTION_GROUP[ing.category]][phaseKey] ??
+    { grams: 20 };
+  if (base.label) return base;
+  return { grams: Math.max(1, Math.round(base.grams * adj * wobble * scale)) };
+}
 
 /**
  * 離乳食開始からの日数に基づく進行段階。
@@ -269,11 +356,17 @@ function pickWeighted(
   candidates: Ingredient[],
   rand: () => number,
   liked: Set<string>,
-  disliked: Set<string>
+  disliked: Set<string>,
+  /** 同じ日にすでに使った食材。他に選べるものがあれば避ける。 */
+  usedToday: Set<string> = new Set()
 ): Ingredient | undefined {
   if (candidates.length === 0) return undefined;
 
-  const preferred = candidates.filter((ing) => !disliked.has(ing.id));
+  let preferred = candidates.filter((ing) => !disliked.has(ing.id));
+  // 1日の中で同じ食材が続くと献立として代わり映えしないため、
+  // 他に候補がある限りその日すでに使ったものは避ける。
+  const unused = preferred.filter((ing) => !usedToday.has(ing.id));
+  if (unused.length > 0) preferred = unused;
   const pool = preferred.length > 0 ? preferred : candidates;
 
   const weighted: Ingredient[] = [];
@@ -411,27 +504,45 @@ export function generateSuggestion(params: {
       })
     );
 
+  // 同じ日の中で食材・レシピが重複しないよう、使ったものを覚えておく。
+  const usedIngredients = new Set<string>();
+  const usedRecipes = new Set<string>();
+
+  // 果物は「野菜・果物」枠だが、毎食フルーツになると献立が偏るので、
+  // 野菜の候補があるうちは野菜を優先し、たまに果物を選ぶ。
+  const vegOnly = vegCandidates.filter((i) => !FRUIT_IDS.has(i.id));
+  const fruitOnly = vegCandidates.filter((i) => FRUIT_IDS.has(i.id));
+  const FRUIT_RATIO = 0.25;
+
   const meals = activeMeals.map((name) => {
     const wobble = 0.9 + rand() * 0.2;
-    const gramsOf = (base: number) => Math.max(1, Math.round(base * adj * wobble * amountScale));
-    const gramsFor: Record<FoodCategory, number> = {
-      staple:  gramsOf(guide.categories.staple),
-      veg:     gramsOf(guide.categories.veg),
-      protein: gramsOf(guide.categories.protein),
+    // 目安量は食材の種別ごとに違う（豆腐45gと魚15gは同じ「1回分」）。
+    const itemFor = (ing: Ingredient, cat: FoodCategory): PlanItem => {
+      const form = ing.stageForms[phase.key]!;
+      const portion = portionFor(ing, phase.key, adj, wobble, amountScale);
+      return {
+        cat,
+        ingredientId: ing.id,
+        text: `${ing.name}（${form.cook}）`,
+        grams: portion.grams,
+        amountLabel: portion.label,
+        tip: form.tip,
+      };
     };
 
     // 該当ステージで安全なレシピがあれば半々の確率で「一品」として提案する。
     // 無ければ従来どおり主食・野菜・タンパク質を独立に選ぶ。
-    if (recipeCandidates.length > 0 && rand() < 0.5) {
-      const recipe = recipeCandidates[Math.floor(rand() * recipeCandidates.length)];
+    // その日まだ使っていないレシピを優先する（同じ日に同じ献立を出さない）
+    const freshRecipes = recipeCandidates.filter((r) => !usedRecipes.has(r.id));
+    const recipePool = freshRecipes.length > 0 ? freshRecipes : recipeCandidates;
+
+    if (recipePool.length > 0 && rand() < 0.5) {
+      const recipe = recipePool[Math.floor(rand() * recipePool.length)];
+      usedRecipes.add(recipe.id);
+      recipe.ingredientIds.forEach((id) => usedIngredients.add(id));
       const items: PlanItem[] = recipe.ingredientIds.map((id) => {
         const ing = ingredientById.get(id)!;
-        const foodCat = INGREDIENT_CATEGORY_TO_FOOD_CATEGORY[ing.category]!;
-        const form = ing.stageForms[phase.key]!;
-        return {
-          cat: foodCat, ingredientId: id,
-          text: `${ing.name}（${form.cook}）`, grams: gramsFor[foodCat], tip: form.tip,
-        };
+        return itemFor(ing, INGREDIENT_CATEGORY_TO_FOOD_CATEGORY[ing.category]!);
       });
       return {
         name, items, totalGrams: items.reduce((a, b) => a + b.grams, 0),
@@ -439,32 +550,21 @@ export function generateSuggestion(params: {
       };
     }
 
-    const staple  = allows("staple")  ? pickWeighted(stapleCandidates,  rand, liked, disliked) : undefined;
-    const veg     = allows("veg")     ? pickWeighted(vegCandidates,     rand, liked, disliked) : undefined;
-    const protein = allows("protein") ? pickWeighted(proteinCandidates, rand, liked, disliked) : undefined;
+    // 果物だけの枠にならないよう、基本は野菜から選ぶ
+    const useFruit = fruitOnly.length > 0 && (vegOnly.length === 0 || rand() < FRUIT_RATIO);
+    const vegPool = useFruit ? fruitOnly : vegOnly.length > 0 ? vegOnly : vegCandidates;
+
+    // 初期は主食がおかゆ中心であるのが自然なので、主食だけは重複回避の対象外にする
+    // （そうしないと2回食になった途端、片方が別の主食に置き換わってしまう）。
+    const stapleUsed = step ? new Set<string>() : usedIngredients;
+    const staple  = allows("staple")  ? pickWeighted(stapleCandidates,  rand, liked, disliked, stapleUsed) : undefined;
+    const veg     = allows("veg")     ? pickWeighted(vegPool,           rand, liked, disliked, usedIngredients) : undefined;
+    const protein = allows("protein") ? pickWeighted(proteinCandidates, rand, liked, disliked, usedIngredients) : undefined;
 
     const items: PlanItem[] = [];
-    if (staple) {
-      const form = staple.stageForms[phase.key]!;
-      items.push({
-        cat: "staple", ingredientId: staple.id,
-        text: `${staple.name}（${form.cook}）`, grams: gramsFor.staple, tip: form.tip,
-      });
-    }
-    if (veg) {
-      const form = veg.stageForms[phase.key]!;
-      items.push({
-        cat: "veg", ingredientId: veg.id,
-        text: `${veg.name}（${form.cook}）`, grams: gramsFor.veg, tip: form.tip,
-      });
-    }
-    if (protein) {
-      const form = protein.stageForms[phase.key]!;
-      items.push({
-        cat: "protein", ingredientId: protein.id,
-        text: `${protein.name}（${form.cook}）`, grams: gramsFor.protein, tip: form.tip,
-      });
-    }
+    if (staple)  { items.push(itemFor(staple, "staple"));   usedIngredients.add(staple.id); }
+    if (veg)     { items.push(itemFor(veg, "veg"));         usedIngredients.add(veg.id); }
+    if (protein) { items.push(itemFor(protein, "protein")); usedIngredients.add(protein.id); }
 
     return { name, items, totalGrams: items.reduce((a, b) => a + b.grams, 0) };
   });

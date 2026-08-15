@@ -6,11 +6,47 @@ export type MealName = "朝" | "昼" | "夕";
 
 export type FoodCategory = "staple" | "veg" | "protein";
 
+/**
+ * 目安量のグループ。
+ *
+ * 厚生労働省「授乳・離乳の支援ガイド(2019年改定版)」の「離乳の進め方の目安」は、
+ * たんぱく質を「魚 / 肉 / 豆腐 / 卵 / 乳製品のいずれか」として食材種別ごとに
+ * 別々の量で示している(中期なら魚10〜15g・豆腐30〜40g・乳製品50〜70g)。
+ * カテゴリ単位で1つの数値しか持たないと、豆腐が少なすぎ魚が多すぎる、という
+ * ズレが必ず出るため、食材の種別ごとに目安量を引けるようにする。
+ */
+export type PortionGroup =
+  | "gayu"      // がゆ・軟飯・ご飯（穀類の基準）
+  | "noodle"    // うどん・そうめん（ゆで上がり）
+  | "bread"     // 食パン
+  | "potato"    // いも類（主食として出す場合）
+  | "vegetable" // 野菜・果物
+  | "fish"      // 魚
+  | "meat"      // 肉
+  | "tofu"      // 豆腐
+  | "natto"     // 納豆
+  | "egg_yolk"  // 卵黄のみ
+  | "egg_whole" // 全卵
+  | "dairy"     // 乳製品（ヨーグルト等）
+  | "cheese"    // チーズ（乳製品より少量）
+  | "liver"     // レバー（鉄が多く少量で足りる）
+  | "mushroom"  // きのこ類（かさが大きく、野菜と同量は多すぎる）
+  | "seaweed"   // わかめ等の海藻（戻すと大きく増える）
+  | "nori";     // のり（1枚3g程度。他と桁が違う）
+
+/**
+ * 1回あたりの目安量。label がある場合は「◯g」の代わりにそれを表示する
+ * （卵のように個数で示すのが自然なものに使う）。
+ */
+export type Portion = { grams: number; label?: string };
+
 export type PlanItem = {
   cat: FoodCategory;
   ingredientId: string;
   text: string;
   grams: number;
+  /** grams の代わりに表示する量の表記（例: 「卵黄1個〜全卵1/3個」） */
+  amountLabel?: string;
   tip?: string; // 食べさせ方の工夫（ある場合のみ）
 };
 
@@ -107,6 +143,8 @@ export type Ingredient = {
   allergens: Allergen[];
   // ステージ別の調理情報（未定義のステージでは登場させない食材もあるため optional）
   stageForms: Partial<Record<PhaseKey, StageForm>>;
+  // 目安量のグループ。未指定ならカテゴリから推定される（ingredients.ts参照）。
+  portionGroup?: PortionGroup;
   // true の場合、食材チェック・印刷記録には出るが日次提案(generateSuggestion)では
   // 自動的に提案しない。えび・かに・そば・くるみのように離乳食期には積極的に
   // 勧められない食材や、ごま・きな粉のように「ひとつまみ」レベルの薬味であって

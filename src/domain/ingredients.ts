@@ -1,4 +1,4 @@
-import type { Allergen, Ingredient } from "./types";
+import type { Allergen, Ingredient, PortionGroup } from "./types";
 
 // baby-meal-planner (Gemini CLI版) の食材マスターを移植・拡充。
 // idはローカルの安定キー（Firestoreのドキュメント名にもそのまま使う）。
@@ -492,7 +492,7 @@ export const INGREDIENT_MASTER: Ingredient[] = [
       },
       "7_8": { cook: "茹でて2〜3mm角につぶし残す" },
       "9_11": { cook: "茹でて5〜8mm角" },
-      "12_18": { cook: "1cm角" },
+      "12_18": { cook: "水切りして1cm角に切る（加熱しなくてもよい）" },
     },
   },
   {
@@ -516,7 +516,7 @@ export const INGREDIENT_MASTER: Ingredient[] = [
         tip: "熱湯をかけると粘りが取れて食べやすくなる",
       },
       "9_11": { cook: "細かく刻んで粘りを軽く切る" },
-      "12_18": { cook: "軽く刻む" },
+      "12_18": { cook: "加熱して軽く刻み、粘りが強ければ湯でのばす" },
     },
   },
   {
@@ -546,23 +546,37 @@ export const INGREDIENT_MASTER: Ingredient[] = [
     },
   },
   {
-    id: "ranou", name: "卵黄", category: "protein", earliestStage: "7_8",
+    // 厚生労働省「授乳・離乳の支援ガイド(2019年改定版)」は離乳初期の項に
+    // 「慣れてきたら、つぶした豆腐・白身魚・卵黄等を試してみる」と明記している。
+    // また国立成育医療研究センターのPETIT研究以降、開始を遅らせるとかえって
+    // 鶏卵アレルギーの発症リスクが上がるとされ、方針が変わっている。
+    // 以前は中期(7_8)開始としていたが、公的ガイドに合わせて初期から出す。
+    id: "ranou", name: "卵黄", category: "protein", earliestStage: "5_6",
     allergens: ["egg"],
     stageForms: {
+      "5_6": {
+        cook: "20分以上固ゆでにした卵黄を、耳かき1杯分からなめらかにすりつぶす",
+        tip: "受診できる平日の午前中に、ごく少量から。アトピー性皮膚炎がある場合は自己判断で進めず必ずかかりつけ医に相談する",
+      },
       "7_8": {
-        cook: "固ゆでにしてなめらかに裏ごし（ひとさじから）",
-        tip: "初めては平日の午前中など、症状が出てもすぐ受診できる時間帯に少量から",
+        cook: "固ゆでにしてなめらかに裏ごし",
+        tip: "問題がなければ少しずつ増やし、慣れたら全卵へ進む",
       },
       "9_11": { cook: "固ゆでにして刻む" },
     },
   },
   {
-    id: "zenran", name: "全卵", category: "protein", earliestStage: "9_11",
+    // 中期の目安量が「卵黄1個〜全卵1/3個」であるため、全卵も中期から出せる。
+    id: "zenran", name: "全卵", category: "protein", earliestStage: "7_8",
     allergens: ["egg"],
     stageForms: {
+      "7_8": {
+        cook: "固ゆでにして白身も含めしっかりつぶす（全卵1/3個まで）",
+        tip: "卵白は卵黄よりアレルギーが出やすい。卵黄に慣れてから、少量ずつ始める",
+      },
       "9_11": {
         cook: "しっかり加熱し（固ゆで卵・薄焼き卵）細かく刻む",
-        tip: "卵白は卵黄よりアレルギーが出やすいため、初回は少量からゆっくり増やす",
+        tip: "半熟は避け、中心まで完全に火を通す",
       },
       "12_18": { cook: "しっかり加熱して食べやすい大きさに切る" },
     },
@@ -706,7 +720,468 @@ export const INGREDIENT_MASTER: Ingredient[] = [
       },
     },
   },
+
+  // ============================================================
+  // 拡充分
+  // 献立の代わり映えと、食材チェック表の網羅性を上げるための追加。
+  // 後期以降は鉄が不足しやすいため、赤身の魚・肉・レバーを厚めに入れている。
+  // ============================================================
+
+  // ===== 炭水化物（追加） =====
+  {
+    id: "oatmeal", name: "オートミール", category: "carb", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": {
+        cook: "水や湯で10分ほど煮てとろとろのおかゆ状にする",
+        tip: "おかゆより手早く作れる。粒の細かいクイックオーツが扱いやすい",
+      },
+      "9_11": { cook: "水分少なめに煮て粒感を少し残す" },
+      "12_18": { cook: "牛乳や豆乳で煮てリゾット風にする" },
+    },
+  },
+  {
+    id: "macaroni", name: "マカロニ (小麦)", category: "carb", earliestStage: "7_8",
+    allergens: ["wheat"],
+    stageForms: {
+      "7_8": { cook: "表示より長めに茹でて2〜3mmに刻む" },
+      "9_11": { cook: "やわらかく茹でて5〜8mmに刻む" },
+      "12_18": { cook: "やわらかめに茹でる（手づかみ食べにも向く）" },
+    },
+  },
+  {
+    id: "fu", name: "麩 (小麦)", category: "carb", earliestStage: "7_8",
+    allergens: ["wheat"],
+    stageForms: {
+      "7_8": {
+        cook: "すりおろすか水で戻してすりつぶす",
+        tip: "汁物に入れるととろみがつく。常温保存でき、買い置きしやすい",
+      },
+      "9_11": { cook: "水で戻して細かく刻む" },
+      "12_18": { cook: "水で戻して食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "cornflakes", name: "コーンフレーク (無糖)", category: "carb", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": {
+        cook: "湯やミルクでふやかしてやわらかくする",
+        tip: "砂糖・はちみつ不使用のプレーンなものを選ぶ",
+      },
+      "12_18": { cook: "ミルクでふやかす（少し食感を残してもよい）" },
+    },
+  },
+  {
+    id: "harusame", name: "春雨", category: "carb", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": {
+        cook: "やわらかく茹でて5〜8mmに刻む",
+        tip: "つるんと丸呑みしやすいので必ず短く刻む",
+      },
+      "12_18": { cook: "やわらかく茹でて1cm程度に刻む" },
+    },
+  },
+  {
+    id: "gohan", name: "ご飯", category: "carb", earliestStage: "12_18",
+    allergens: [],
+    stageForms: {
+      "12_18": {
+        cook: "大人よりやわらかめに炊く",
+        tip: "軟飯に慣れて、丸呑みせず噛めるようになってから移行する",
+      },
+    },
+  },
+
+  // ===== 野菜・果物（追加） =====
+  {
+    id: "hakusai", name: "白菜", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": { cook: "葉先をやわらかく茹でてなめらかに裏ごし", tip: "芯は繊維が強いので葉先だけを使う" },
+      "7_8": { cook: "やわらかく茹でて2〜3mmに刻む" },
+      "9_11": { cook: "やわらかく茹でて5〜8mmに刻む" },
+      "12_18": { cook: "やわらかく煮て食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "kabu", name: "かぶ", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": { cook: "皮を厚めにむいてやわらかく茹で、なめらかにすりつぶす", tip: "加熱すると甘みが出てくせがない" },
+      "7_8": { cook: "やわらかく茹でて2〜3mmに刻む" },
+      "9_11": { cook: "やわらかく煮て5〜8mm角に切る" },
+      "12_18": { cook: "煮物にして食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "cauliflower", name: "カリフラワー", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": { cook: "穂先をやわらかく茹でてなめらかに裏ごし" },
+      "7_8": { cook: "やわらかく茹でて2〜3mmに刻む" },
+      "9_11": { cook: "やわらかく茹でて5〜8mmに刻む" },
+      "12_18": { cook: "小房に分けてやわらかく茹でる（手づかみ食べにも向く）" },
+    },
+  },
+  {
+    id: "chingensai", name: "チンゲン菜", category: "vitamin", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": { cook: "葉先だけを茹でてなめらかに裏ごし", tip: "茎は繊維が強いので後期以降に回す" },
+      "7_8": { cook: "葉先をやわらかく茹でて2〜3mmに刻む" },
+      "9_11": { cook: "茎もやわらかく茹でて5〜8mmに刻む" },
+      "12_18": { cook: "やわらかく煮て食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "zucchini", name: "ズッキーニ", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": { cook: "皮をむいてやわらかく茹で、2〜3mmに刻む" },
+      "9_11": { cook: "皮をむいてやわらかく茹で、5〜8mm角に切る" },
+      "12_18": { cook: "皮をむいて煮るか焼いて、食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "ingen", name: "さやいんげん", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": { cook: "筋を取ってやわらかく茹で、2〜3mmに刻む", tip: "薄皮が口に残りやすいので、気になるうちは裏ごしする" },
+      "9_11": { cook: "やわらかく茹でて5〜8mmに刻む" },
+      "12_18": { cook: "やわらかく茹でて1〜2cmに切る" },
+    },
+  },
+  {
+    id: "greenpeas", name: "グリンピース", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "やわらかく茹でて薄皮を除き、粗くつぶす", tip: "薄皮は必ず取り除く。丸のままは詰まりやすい" },
+      "12_18": { cook: "やわらかく茹でて薄皮を除く" },
+    },
+  },
+  {
+    id: "mizuna", name: "水菜", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "葉先をやわらかく茹でて5mm程度に刻む" },
+      "12_18": { cook: "やわらかく茹でて1cm程度に刻む" },
+    },
+  },
+  {
+    id: "moyashi", name: "もやし", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "ひげ根を取ってやわらかく茹で、細かく刻む", tip: "繊維が残りやすいので短く刻む" },
+      "12_18": { cook: "やわらかく茹でて1cm程度に刻む" },
+    },
+  },
+  {
+    id: "avocado", name: "アボカド", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "熟したものをつぶす", tip: "脂質が多いので少量から。加熱しなくても食べられる" },
+      "12_18": { cook: "熟したものを食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "budou", name: "ぶどう", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": { cook: "皮と種を除いてすりつぶす", tip: "丸のままは窒息の危険があるため、必ず4等分以下に切る" },
+      "9_11": { cook: "皮と種を除いて4等分以上に切る" },
+      "12_18": { cook: "皮と種を除いて4等分以上に切る" },
+    },
+  },
+  {
+    id: "prune", name: "プルーン", category: "vitamin", earliestStage: "7_8",
+    allergens: [],
+    stageForms: {
+      "7_8": { cook: "種を除き、湯で戻してなめらかにすりつぶす", tip: "便秘がちなときに少量。与えすぎるとゆるくなる" },
+      "9_11": { cook: "種を除いて細かく刻む" },
+      "12_18": { cook: "種を除いて食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "kaki", name: "柿", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "よく熟したものの皮と種を除いてつぶす", tip: "渋みが残るものは避け、やわらかく熟したものを選ぶ" },
+      "12_18": { cook: "皮と種を除いて食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "blueberry", name: "ブルーベリー", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "加熱してつぶすか、半分に切る", tip: "丸のままは喉に詰まりやすいので必ず切る" },
+      "12_18": { cook: "半分に切る（丸のままは喉に詰まりやすい）" },
+    },
+  },
+  {
+    id: "wakame", name: "わかめ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "塩抜きしてやわらかく煮て、ごく細かく刻む", tip: "噛み切りにくく張り付きやすいので必ず細かく刻む" },
+      "12_18": { cook: "塩抜きしてやわらかく煮て細かく刻む" },
+    },
+  },
+  {
+    // のりは板1枚が約3g。1食分の野菜(30〜40g)としては成立せず、
+    // ごま・きな粉と同じく薬味扱い。食材チェック・アレルギー記録には残す。
+    id: "nori", name: "焼きのり", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    neverSuggest: true,
+    stageForms: {
+      "9_11": { cook: "細かくちぎるか、もんで粉状にしてかける", tip: "口や喉に張り付きやすいので、湿らせるか粉状にして使う" },
+      "12_18": { cook: "小さくちぎっておにぎりに巻く" },
+    },
+  },
+  {
+    id: "hoshishiitake", name: "干ししいたけ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "水で戻してやわらかく煮て、ごく細かく刻む", tip: "戻し汁はだしとして使える" },
+      "12_18": { cook: "水で戻してやわらかく煮て細かく刻む" },
+    },
+  },
+  {
+    id: "maitake", name: "まいたけ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "やわらかく煮てごく細かく刻む", tip: "きのこ類は弾力があり噛み切りにくいので細かく刻む" },
+      "12_18": { cook: "やわらかく煮て細かく刻む" },
+    },
+  },
+  {
+    id: "enoki", name: "えのきたけ", category: "vitamin", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "やわらかく煮てごく細かく刻む", tip: "繊維が長いまま入ると絡まるので、必ず短く刻む" },
+      "12_18": { cook: "やわらかく煮て短く刻む" },
+    },
+  },
+  {
+    id: "kiriboshi", name: "切り干し大根", category: "vitamin", earliestStage: "12_18",
+    allergens: [],
+    stageForms: {
+      "12_18": { cook: "水で戻してやわらかく煮て、細かく刻む", tip: "戻し汁ごと煮ると甘みが出る" },
+    },
+  },
+
+  // ===== たんぱく質（追加） =====
+  {
+    id: "koyadofu", name: "高野豆腐 (大豆)", category: "protein", earliestStage: "7_8",
+    allergens: ["soy"],
+    stageForms: {
+      "7_8": { cook: "凍ったまますりおろして煮る", tip: "すりおろすと下ごしらえが不要で、鉄・たんぱく質が手軽に足せる" },
+      "9_11": { cook: "水で戻してやわらかく煮て細かく刻む" },
+      "12_18": { cook: "水で戻して煮含め、食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "atsuage", name: "厚揚げ (大豆)", category: "protein", earliestStage: "9_11",
+    allergens: ["soy"],
+    stageForms: {
+      "9_11": { cook: "熱湯をかけて油抜きし、やわらかく煮て細かく刻む", tip: "油抜きをしないと脂質が多すぎる" },
+      "12_18": { cook: "油抜きして煮含め、食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "daizunisui", name: "大豆水煮 (大豆)", category: "protein", earliestStage: "9_11",
+    allergens: ["soy"],
+    stageForms: {
+      "9_11": { cook: "薄皮を除いてやわらかく煮てつぶす", tip: "薄皮が口に残りやすいので必ず取り除く" },
+      "12_18": { cook: "やわらかく煮て粗くつぶす" },
+    },
+  },
+  {
+    id: "maguro", name: "まぐろ (赤身)", category: "protein", earliestStage: "7_8",
+    allergens: ["fish"],
+    stageForms: {
+      "7_8": { cook: "しっかり加熱してほぐし、ゆで汁でのばす", tip: "白身魚に慣れてから赤身魚へ。鉄が多く、後期以降の鉄不足対策になる" },
+      "9_11": { cook: "しっかり加熱して5〜8mmにほぐす" },
+      "12_18": { cook: "しっかり加熱して食べやすい大きさにほぐす" },
+    },
+  },
+  {
+    id: "katsuo", name: "かつお", category: "protein", earliestStage: "9_11",
+    allergens: ["fish"],
+    stageForms: {
+      "9_11": { cook: "しっかり加熱してほぐす", tip: "鉄が豊富。刺身用でも必ず中心まで加熱する" },
+      "12_18": { cook: "しっかり加熱してほぐす" },
+    },
+  },
+  {
+    id: "buri", name: "ぶり", category: "protein", earliestStage: "9_11",
+    allergens: ["fish"],
+    stageForms: {
+      "9_11": { cook: "しっかり加熱し、小骨と皮を除いてほぐす", tip: "脂が多い青背魚。白身魚・赤身魚に慣れてから少量ずつ" },
+      "12_18": { cook: "しっかり加熱し、小骨と皮を除いてほぐす" },
+    },
+  },
+  {
+    id: "aji", name: "あじ", category: "protein", earliestStage: "9_11",
+    allergens: ["fish"],
+    stageForms: {
+      "9_11": { cook: "しっかり加熱し、小骨と皮を丁寧に除いてほぐす", tip: "小骨が多いので必ず指で確認する" },
+      "12_18": { cook: "しっかり加熱し、小骨と皮を除いてほぐす" },
+    },
+  },
+  {
+    id: "iwashi", name: "いわし", category: "protein", earliestStage: "9_11",
+    allergens: ["fish"],
+    stageForms: {
+      "9_11": { cook: "しっかり加熱し、小骨と皮を丁寧に除いてほぐす", tip: "青背魚は白身魚に慣れてから。小骨の確認を丁寧に" },
+      "12_18": { cook: "しっかり加熱し、小骨と皮を除いてほぐす" },
+    },
+  },
+  {
+    id: "torimune", name: "鶏むね肉", category: "protein", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "皮と脂を除いて茹で、細かく刻むかほぐす", tip: "パサつきやすいので、ゆで汁やとろみと一緒に与える" },
+      "12_18": { cook: "皮と脂を除いて茹で、食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "butaniku", name: "豚赤身肉", category: "protein", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "脂の少ない部位を選び、しっかり加熱して細かく刻む", tip: "脂身は取り除く。ひき肉から始めると食べやすい" },
+      "12_18": { cook: "脂身を除いてやわらかく煮て、食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "gyuniku", name: "牛赤身肉", category: "protein", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": { cook: "脂の少ない部分をしっかり加熱して細かく刻む", tip: "鉄が多い。かたくなりやすいのでやわらかく煮る" },
+      "12_18": { cook: "脂身を除いてやわらかく煮て、食べやすい大きさに切る" },
+    },
+  },
+  {
+    id: "reba", name: "鶏レバー", category: "protein", earliestStage: "9_11",
+    allergens: [],
+    stageForms: {
+      "9_11": {
+        cook: "血抜きしてしっかり加熱し、なめらかにすりつぶす",
+        tip: "鉄が非常に多く、後期の鉄不足対策に有効。ビタミンAも多いため、少量を週1〜2回程度に留める",
+      },
+      "12_18": { cook: "血抜きしてしっかり加熱し、細かく刻む" },
+    },
+  },
+  {
+    id: "cottagecheese", name: "カッテージチーズ (乳)", category: "protein", earliestStage: "7_8",
+    allergens: ["milk"],
+    stageForms: {
+      "7_8": { cook: "裏ごしタイプをそのまま、または加熱して和える", tip: "チーズの中では塩分・脂質が少なく、離乳食に向く" },
+      "9_11": { cook: "そのまま和えるか、加熱して混ぜる" },
+      "12_18": { cook: "そのまま和える" },
+    },
+  },
+  {
+    id: "processcheese", name: "プロセスチーズ (乳)", category: "protein", earliestStage: "12_18",
+    allergens: ["milk"],
+    stageForms: {
+      "12_18": {
+        cook: "細かく刻むか加熱して溶かす",
+        tip: "塩分・脂質が多いのでごく少量に。ベビー用や食塩不使用のものを選ぶと安心",
+      },
+    },
+  },
+
+  // ===== その他（追加） =====
+  {
+    id: "tounyu", name: "豆乳 (大豆)", category: "other", earliestStage: "9_11",
+    allergens: ["soy"],
+    stageForms: {
+      "9_11": { cook: "無調整のものを加熱して調理に使う", tip: "飲み物としてではなく、煮込みやスープの水分として使う" },
+      "12_18": { cook: "無調整のものを加熱して調理に使う" },
+    },
+  },
+  {
+    id: "mugicha", name: "麦茶", category: "other", earliestStage: "5_6",
+    allergens: [],
+    stageForms: {
+      "5_6": { cook: "湯冷ましで薄めて少量", tip: "水分補給は母乳・ミルクが基本。麦茶は補助的に" },
+      "7_8": { cook: "薄めのものを湯冷まし程度の温度で" },
+      "9_11": { cook: "食事と一緒に少量ずつ" },
+      "12_18": { cook: "食事と一緒にコップで少しずつ与える" },
+    },
+  },
+  {
+    id: "katsuobushi", name: "かつお節", category: "other", earliestStage: "7_8",
+    allergens: ["fish"],
+    neverSuggest: true,
+    stageForms: {
+      "7_8": { cook: "細かくして風味づけにひとつまみ", tip: "だしや風味づけとして少量。主菜としては使わない" },
+      "9_11": { cook: "細かくして風味づけに" },
+      "12_18": { cook: "細かくして風味づけにひとつまみ" },
+    },
+  },
+  {
+    id: "aonori", name: "青のり", category: "other", earliestStage: "7_8",
+    allergens: [],
+    neverSuggest: true,
+    stageForms: {
+      "7_8": { cook: "風味づけにひとつまみ" },
+      "9_11": { cook: "風味づけにひとつまみ" },
+      "12_18": { cook: "風味づけにひとつまみ" },
+    },
+  },
 ];
+
+/**
+ * 食材id → 目安量グループ。
+ *
+ * 全61件に portionGroup を直接書くと差分が大きくなるので、ここで一括して対応づける。
+ * ここに無い食材は categoryFallback（carb→gayu, vitamin→vegetable, protein→tofu）で解決される。
+ * 提案対象外(neverSuggest)や other カテゴリの食材は登録しなくてよい。
+ */
+export const PORTION_GROUP_BY_ID: Record<string, PortionGroup> = {
+  // ---- 穀類 ----
+  gayu_10: "gayu", gayu_7: "gayu", gayu_5: "gayu", nanhan: "gayu",
+  udon: "noodle", somen: "noodle",
+  shokupan: "bread",
+  soba: "noodle",
+  // いも類は主食としても野菜としても扱われるが、このアプリでは
+  // じゃがいも・さつまいもを carb(主食枠)、さといもを vitamin(野菜枠)に置いている。
+  jagaimo: "potato", satsumaimo: "potato",
+
+  // ---- たんぱく質 ----
+  shiromizakana: "fish", shirasu: "fish", sake: "fish", tsuna: "fish",
+  sasami: "meat", torihikiniku: "meat", gyubutahikiniku: "meat",
+  tofu: "tofu",
+  natto: "natto",
+  ranou: "egg_yolk", zenran: "egg_whole",
+  yogurt: "dairy",
+
+  // ---- 拡充分 ----
+  oatmeal: "gayu", gohan: "gayu",
+  macaroni: "noodle", harusame: "noodle",
+  fu: "bread", cornflakes: "bread",
+  koyadofu: "tofu", atsuage: "tofu",
+  daizunisui: "natto", // 豆腐より少量。粒の豆は納豆に近い目安量にする
+  maguro: "fish", katsuo: "fish", buri: "fish", aji: "fish", iwashi: "fish",
+  torimune: "meat", butaniku: "meat", gyuniku: "meat",
+  reba: "liver",
+  cottagecheese: "cheese", processcheese: "cheese",
+  shimeji: "mushroom", maitake: "mushroom", enoki: "mushroom", hoshishiitake: "mushroom",
+  wakame: "seaweed", nori: "nori",
+};
+
+/**
+ * 果物の食材id。
+ *
+ * 公的な目安量では「野菜・果物」で1枠だが、毎食フルーツが野菜枠を占めると
+ * 献立として偏る。提案では野菜を優先し、果物は控えめの確率で選ぶ。
+ */
+export const FRUIT_IDS: ReadonlySet<string> = new Set([
+  "ringo", "banana", "ichigo", "mikan", "momo", "suika", "melon", "nashi",
+  "kiwi", "budou", "prune", "kaki", "blueberry", "avocado",
+]);
 
 export const INGREDIENT_CATEGORY_LABEL: Record<Ingredient["category"], string> = {
   carb: "炭水化物",
