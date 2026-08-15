@@ -102,6 +102,11 @@ export function AiSuggest(props: {
               <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>💡 {r.point}</p>
             </div>
           ))}
+          <p className="disclaimer-note">
+            この献立はAIが生成したものです。登録済みのアレルギー食材は除外するよう指示していますが、
+            提供前に必ず材料と加熱の状態をご自身で確認してください。
+            アレルギーや発育について気になることは、かかりつけの小児科医にご相談ください。
+          </p>
         </>
       )}
 

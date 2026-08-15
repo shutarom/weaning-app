@@ -142,6 +142,10 @@ export function PrintableRecord(props: {
             </table>
           )}
         </section>
+
+        <p style={{ fontSize: 10, color: "#666", marginTop: 16 }}>
+          ※この記録は保護者がアプリで入力したものです。診断・治療の根拠となるものではありません。
+        </p>
       </div>
 
       <button className="onboarding-btn no-print" onClick={onClose}>閉じる</button>

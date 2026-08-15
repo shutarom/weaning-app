@@ -44,6 +44,17 @@
   border-bottom: 1px solid #fca5a5;
 }
 
+/* ===== 免責の注記 ===== */
+.disclaimer-note {
+  margin: 16px 0 0;
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--text-muted);
+  background: var(--surface2);
+  border-radius: 8px;
+}
+
 /* ===== 更新通知バナー ===== */
 .update-banner {
   display: flex;
