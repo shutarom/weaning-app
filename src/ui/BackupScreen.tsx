@@ -1,14 +1,9 @@
 import { useRef, useState } from "react";
 import { buildBackup, serializeBackup, parseBackup, importBackup, type ParsedBackup } from "../data/backup";
+import { copyText, downloadBlob } from "../lib/compat";
 
 function downloadJson(filename: string, content: string) {
-  const blob = new Blob([content], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadBlob(filename, new Blob([content], { type: "application/json" }));
 }
 
 export function BackupScreen(props: { onClose: () => void }) {
@@ -30,7 +25,8 @@ export function BackupScreen(props: { onClose: () => void }) {
 
   const handleCopy = () => {
     if (!exportedJson) return;
-    navigator.clipboard.writeText(exportedJson).then(() => {
+    void copyText(exportedJson).then((ok) => {
+      if (!ok) return;
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     });

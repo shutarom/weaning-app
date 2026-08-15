@@ -2,6 +2,8 @@ import type { DailyLog, DailyPlan, MealName, MealLog, FreeEntry } from "../domai
 import { syncLogToCloud, syncPlanToCloud, toMillis } from "./cloudSync";
 import { PLAN_SCHEMA_VERSION } from "../domain/suggestionEngine";
 import { getBabyId } from "../lib/babyState";
+import { safeGetItem, safeSetItem } from "../lib/storage";
+import { newLocalId } from "../lib/compat";
 
 // 赤ちゃんごとにローカルの記録を分離する（babyIdが未確定の間は使われない想定）。
 function storageKey(): string {
@@ -26,7 +28,7 @@ function empty(): StoreShape {
 
 function readStore(): StoreShape {
   try {
-    const raw = localStorage.getItem(storageKey());
+    const raw = safeGetItem(storageKey());
     if (!raw) return empty();
     const parsed = JSON.parse(raw) as Partial<StoreShape>;
     return {
@@ -39,7 +41,7 @@ function readStore(): StoreShape {
 }
 
 function writeStore(store: StoreShape): void {
-  localStorage.setItem(storageKey(), JSON.stringify(store));
+  safeSetItem(storageKey(), JSON.stringify(store));
   notifyStoreChanged();
 }
 
@@ -124,13 +126,14 @@ export function upsertPlan(plan: DailyPlan): void {
  * 記録として確定していないため破棄して作り直す。過去日は実績と対になる
  * 提案内容を変えないため対象外にする。
  */
-export function getOrCreatePlan(dateIso: string, factory: () => DailyPlan): DailyPlan {
+export function getOrCreatePlan(dateIso: string, factory: (revision: number) => DailyPlan): DailyPlan {
   const store = readStore();
   const existing = store.plans[dateIso];
   const isStale = existing && existing.version < PLAN_SCHEMA_VERSION && dateIso >= toIso(new Date());
   if (existing && !isStale) return existing;
 
-  const plan = factory();
+  // 作り直しでも、その日にすでに再生成した回数は引き継ぐ
+  const plan = factory(existing?.revision ?? 0);
   store.plans[dateIso] = plan;
   writeStore(store);
 
@@ -141,9 +144,10 @@ export function getOrCreatePlan(dateIso: string, factory: () => DailyPlan): Dail
 }
 
 /** 強制再生成（ロジック更新や、気分で変えたい時用） */
-export function regeneratePlan(dateIso: string, factory: () => DailyPlan): DailyPlan {
+export function regeneratePlan(dateIso: string, factory: (revision: number) => DailyPlan): DailyPlan {
   const store = readStore();
-  const plan = factory();
+  // revision を進めないと乱数シードが変わらず、同じ献立が返ってくる
+  const plan = factory((store.plans[dateIso]?.revision ?? 0) + 1);
   store.plans[dateIso] = plan;
   writeStore(store);
 
@@ -211,7 +215,7 @@ export function mergeFromCloud(
   }
 
   if (changed) {
-    localStorage.setItem(storageKey(), JSON.stringify(store));
+    safeSetItem(storageKey(), JSON.stringify(store));
     notifyStoreChanged();
   }
 }
@@ -241,7 +245,7 @@ export function addFreeEntry(
   const cur: DailyLog = logs[dateIso] ?? { dateIso, meals: {} };
   const mlog = cur.meals[meal] ?? {};
   const newEntry: FreeEntry = {
-    id: crypto.randomUUID().replace(/-/g, "").slice(0, 12),
+    id: newLocalId(12),
     updatedAt: Date.now(),
     ...entry,
   };

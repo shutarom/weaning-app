@@ -4,11 +4,12 @@ import {
 } from "firebase/firestore";
 import { db } from "./firebase";
 import type { BabyProfile } from "../domain/types";
+import { newLocalId } from "./compat";
 
 export type BabySummary = { id: string; name: string; order: number };
 
 function genBabyId(): string {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+  return newLocalId(10);
 }
 
 export async function createBaby(hid: string, name: string, order: number): Promise<string> {

@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { createHousehold, joinHousehold } from "../lib/household";
 import { clearHouseholdId, getHouseholdId, setHouseholdId } from "../lib/householdState";
 import { auth } from "../lib/firebase";
+import { copyText } from "../lib/compat";
 
 function requireUid(): string {
   const uid = auth.currentUser?.uid;
@@ -67,7 +68,8 @@ export function Onboarding(props: { onReady: (hid: string) => void }) {
           <button
             className="onboarding-btn"
             onClick={() => {
-              navigator.clipboard.writeText(createdHid).then(() => {
+              void copyText(createdHid).then((ok) => {
+                if (!ok) return;
                 setCopied(true);
                 setTimeout(() => setCopied(false), 2000);
               });
@@ -151,20 +153,21 @@ export function Onboarding(props: { onReady: (hid: string) => void }) {
           <input
             className="birthday-input"
             value={invite}
-            onChange={(e) => setInvite(e.target.value.trim())}
+            // onChange で trim すると入力途中の文字が削られる。trim は使う直前に行う。
+            onChange={(e) => setInvite(e.target.value)}
             placeholder="例: a1b2c3d4e5"
             autoComplete="off"
             autoCapitalize="none"
           />
           <button
             className="btn-primary"
-            disabled={busy || invite.length < 6}
+            disabled={busy || invite.trim().length < 6}
             onClick={async () => {
               setError(null);
               setBusy(true);
               try {
                 const uid = requireUid();
-                const hid = await joinHousehold(invite, uid);
+                const hid = await joinHousehold(invite.trim(), uid);
                 setHouseholdId(hid);
                 props.onReady(hid);
               } catch (e: unknown) {

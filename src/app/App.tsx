@@ -12,6 +12,7 @@ import {
   fromIso,
   toIso,
   addDays,
+  daysBetween,
   monthsBetween,
   startOfWeek,
 } from "../domain/date";
@@ -32,10 +33,14 @@ import { INGREDIENT_MASTER, ALLERGEN_LABEL } from "../domain/ingredients";
 import { phaseFromMonths, summarizePreferences } from "../domain/suggestionEngine";
 import type { Allergen, DailyLog } from "../domain/types";
 import { Onboarding } from "../ui/Onboarding";
+import { UpdatePrompt } from "../ui/UpdatePrompt";
 import { getHouseholdId, clearHouseholdId } from "../lib/householdState";
 import { getBabyId, setBabyId } from "../lib/babyState";
 import { createBaby, listBabies, migrateToMultiBabyIfNeeded, getBabyProfile, type BabySummary } from "../lib/babies";
 import { useAuthUser } from "../lib/useAuthUser";
+import { copyText } from "../lib/compat";
+import { isCommitEnter, isImeComposing } from "../lib/ime";
+import { getStorageError, STORAGE_ERROR_EVENT_NAME } from "../lib/storage";
 
 type ViewMode = "calendar" | "settings" | "ingredients" | "allergies" | "ai" | "backup" | "print";
 
@@ -55,16 +60,37 @@ function SyncBadge({ status, onRecover }: { status: SyncStatus; onRecover: () =>
         }}
         title="この端末はこの家族グループのメンバーとして認識されていません。招待コードで再参加してください"
       >
-        ⚠ 同期エラー・タップして再参加
+        ⚠️ 同期エラー・タップして再参加
       </button>
     );
   }
   const label = status === "connecting" ? "同期中…" : "オフライン";
   const color = status === "connecting" ? "#6366f1" : "#f97316";
   return (
-    <span style={{ fontSize: 11, color, fontWeight: 600, whiteSpace: "nowrap" }}>
-      {status === "connecting" ? "⟳" : "⚠"} {label}
+    <span style={{ fontSize: 11, color, fontWeight: 600, whiteSpace: "nowrap", display: "inline-flex", alignItems: "center", gap: 4 }}>
+      {/* 以前は ⟳ (U+27F3) を使っていたが、これは絵文字ではなく数学記号で
+          Android のフォントに無いと豆腐(□)になる。CSS のスピナーに置き換えた。 */}
+      {status === "connecting" ? <span className="sync-spinner" aria-hidden="true" /> : "⚠️"} {label}
     </span>
+  );
+}
+
+/**
+ * localStorage への保存に失敗したことを知らせる常設バナー。
+ * 以前は例外が握り潰され、記録が保存されていないことに気づけなかった。
+ */
+function StorageErrorBanner() {
+  const [message, setMessage] = useState<string | null>(() => getStorageError());
+  useEffect(() => {
+    const handler = () => setMessage(getStorageError());
+    window.addEventListener(STORAGE_ERROR_EVENT_NAME, handler);
+    return () => window.removeEventListener(STORAGE_ERROR_EVENT_NAME, handler);
+  }, []);
+  if (!message) return null;
+  return (
+    <div role="alert" className="storage-error-banner">
+      ⚠️ {message}
+    </div>
   );
 }
 
@@ -74,7 +100,7 @@ function MenuOverlay(props: { onSelect: (v: ViewMode) => void; onClose: () => vo
     { view: "ingredients", icon: "🥕", label: "食材チェック" },
     { view: "allergies", icon: "🚨", label: "アレルギー管理" },
     { view: "ai", icon: "✨", label: "AI献立提案" },
-    { view: "print", icon: "🖨", label: "記録の印刷" },
+    { view: "print", icon: "🖨️", label: "記録の印刷" },
     { view: "backup", icon: "💾", label: "バックアップ" },
   ];
   return (
@@ -150,8 +176,9 @@ function BabySwitcherOverlay(props: {
                 autoFocus
                 onChange={(e) => setRenameValue(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === "Enter") { props.onRename(b.id, renameValue); setRenamingId(null); }
-                  if (e.key === "Escape") setRenamingId(null);
+                  // 変換確定の Enter で名前が確定してしまわないようガードする
+                  if (isCommitEnter(e)) { props.onRename(b.id, renameValue); setRenamingId(null); }
+                  if (e.key === "Escape" && !isImeComposing(e)) setRenamingId(null);
                 }}
                 onBlur={() => setRenamingId(null)}
               />
@@ -191,12 +218,12 @@ function BabySwitcherOverlay(props: {
               autoFocus
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && newName.trim()) {
+                if (isCommitEnter(e) && newName.trim()) {
                   props.onAdd(newName.trim());
                   setAdding(false);
                   setNewName("");
                 }
-                if (e.key === "Escape") setAdding(false);
+                if (e.key === "Escape" && !isImeComposing(e)) setAdding(false);
               }}
             />
           </div>
@@ -260,7 +287,8 @@ function SettingsScreen(props: {
         <button
           className="onboarding-btn"
           onClick={() => {
-            navigator.clipboard.writeText(props.householdId).then(() => {
+            void copyText(props.householdId).then((ok) => {
+              if (!ok) return;
               setCopied(true);
               setTimeout(() => setCopied(false), 2000);
             });
@@ -338,7 +366,7 @@ function SettingsScreen(props: {
 }
 
 export default function App() {
-  const { loading: authLoading } = useAuthUser();
+  const { loading: authLoading, error: authError } = useAuthUser();
   const [householdId, setHouseholdId] = useState<string | null>(() => getHouseholdId());
 
   // Firestoreルールが request.auth を要求するため、匿名認証の解決を待ってから
@@ -350,10 +378,25 @@ export default function App() {
       </div>
     );
   }
-  if (!householdId) {
-    return <Onboarding onReady={(hid) => setHouseholdId(hid)} />;
+  // 以前は認証が終わらなくても黙って先へ進んでいたため、モバイル回線では
+  // 原因の分からない permission-denied として現れていた。
+  if (authError) {
+    return (
+      <div className="onboarding">
+        <p className="error-text">⚠️ {authError}</p>
+        <button className="onboarding-btn" onClick={() => window.location.reload()}>再読み込み</button>
+      </div>
+    );
   }
-  return <MainApp householdId={householdId} />;
+  return (
+    <>
+      <UpdatePrompt />
+      <StorageErrorBanner />
+      {householdId
+        ? <MainApp householdId={householdId} />
+        : <Onboarding onReady={(hid) => setHouseholdId(hid)} />}
+    </>
+  );
 }
 
 type ActiveState =
@@ -547,6 +590,14 @@ function BabyScopedApp({
     }
     return monthsBetween(fromIso(birthdayIso), fromIso(selectedIso));
   }, [birthdayIso, weaningStartIso, selectedIso]);
+
+  // 離乳食開始日を1日目とした経過日数。開始直後に「おかゆだけ」から段階的に
+  // 品目を増やすために使う（月齢だけでは開始からの日数が分からない）。
+  const weaningDay = useMemo(() => {
+    if (!weaningStartIso) return undefined;
+    const d = daysBetween(fromIso(weaningStartIso), fromIso(selectedIso)) + 1;
+    return d >= 1 ? d : undefined;
+  }, [weaningStartIso, selectedIso]);
 
   const phase = phaseFromMonths(ageMonths);
 
@@ -796,6 +847,7 @@ function BabyScopedApp({
           <DayDetail
             dateIso={selectedIso}
             ageMonths={ageMonths}
+            weaningDay={weaningDay}
             allergenTags={allergenTags}
             ingredientStatuses={ingredientStatuses}
           />

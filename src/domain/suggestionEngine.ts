@@ -12,10 +12,14 @@ const ingredientById = new Map(INGREDIENT_MASTER.map((i) => [i.id, i]));
 // プラン生成ロジックの世代番号。安全フィルタ(アレルゲン・月齢)に関わる変更を
 // 加えたときは必ず上げる。getOrCreatePlan はこの番号より古い未来日/当日プランを
 // 破棄して再生成する（過去日は実績記録として保持するため対象外）。
-export const PLAN_SCHEMA_VERSION = 3;
+// 4: 離乳食開始日からの進行段階(WeaningStep)を導入。
+export const PLAN_SCHEMA_VERSION = 4;
 
 export function phaseFromMonths(m: number): Phase {
-  if (m <= 5) return { key: "5_6",   label: "初期(5-6ヶ月)" };
+  // 境界はラベルと一致させること。以前は初期が m <= 5 だったため、
+  // 6ヶ月の赤ちゃんが中期扱いになり、うどんや納豆など中期向けの食材が
+  // 提案されていた。
+  if (m <= 6) return { key: "5_6",   label: "初期(5-6ヶ月)" };
   if (m <= 8) return { key: "7_8",   label: "中期(7-8ヶ月)" };
   if (m <= 11) return { key: "9_11", label: "後期(9-11ヶ月)" };
   return            { key: "12_18", label: "完了期(12-18ヶ月)" };
@@ -32,6 +36,76 @@ const BASE_GUIDE: Record<PhaseKey, Guide> = {
   "7_8":   { mealsPerDay: 2, categories: { staple: 60, veg: 40, protein: 20 }, note: "2回食。食材バリエを増やす。" },
   "9_11":  { mealsPerDay: 3, categories: { staple: 80, veg: 50, protein: 30 }, note: "3回食。鉄・たんぱく質を意識。" },
   "12_18": { mealsPerDay: 3, categories: { staple: 100, veg: 60, protein: 40 }, note: "大人食へ近づけつつ無理はしない。" },
+};
+
+/**
+ * 離乳食開始からの日数に基づく進行段階。
+ *
+ * 月齢だけで判断すると、開始直後の赤ちゃんにいきなり野菜やたんぱく質を
+ * 3品提示してしまう（「初日からじゃがいも・にんじん」問題）。実際の進め方は
+ * 一般的に、10倍がゆだけ → 野菜を追加 → たんぱく質を追加、と段階的に増やす。
+ * 開始日が設定されている場合はこちらを優先して品目数・量・回数を決める。
+ *
+ * 量は「小さじ1(≒5g)から始めて徐々に増やす」に合わせて BASE_GUIDE の量を
+ * amountScale で縮める。
+ */
+export type WeaningStep = {
+  label: string;
+  categories: FoodCategory[];
+  mealsPerDay: 1 | 2 | 3;
+  amountScale: number;
+  note: string;
+};
+
+// 各段階の開始日（離乳食開始日を1日目とする）
+const STEP2_FROM_DAY = 15; // 野菜を足す
+const STEP3_FROM_DAY = 29; // たんぱく質を足し、2回食にする
+
+/**
+ * 初期(5-6ヶ月)の間だけ有効。中期以降に進んだらこの段階分けは使わず、
+ * 月齢ベースの BASE_GUIDE に任せる（呼び出し側でステージを判定すること）。
+ * 最終段階(step3)には終わりを設けていない。日数で打ち切ると、ステージが
+ * 上がる前に 2回食 → 1回食 と逆戻りしてしまうため。
+ */
+export function weaningStepFor(weaningDay: number | undefined): WeaningStep | undefined {
+  if (weaningDay === undefined || weaningDay < 1) return undefined;
+
+  if (weaningDay < STEP2_FROM_DAY) {
+    // 最初の2週間はおかゆだけ。量も小さじ1相当から少しずつ増やす。
+    const amountScale = weaningDay <= 3 ? 0.15 : weaningDay <= 7 ? 0.3 : 0.5;
+    return {
+      label: `開始${weaningDay}日目・おかゆに慣れる時期`,
+      categories: ["staple"],
+      mealsPerDay: 1,
+      amountScale,
+      note: "10倍がゆだけを1日1回。小さじ1から始め、機嫌がよければ少しずつ増やす。",
+    };
+  }
+  if (weaningDay < STEP3_FROM_DAY) {
+    return {
+      label: `開始${weaningDay}日目・野菜を試す時期`,
+      categories: ["staple", "veg"],
+      mealsPerDay: 1,
+      amountScale: 0.75,
+      note: "おかゆに野菜を1品ずつ追加。新しい食材は1日1種類、午前中に少量から。",
+    };
+  }
+  return {
+    label: `開始${weaningDay}日目・たんぱく質を試す時期`,
+    categories: ["staple", "veg", "protein"],
+    mealsPerDay: 2,
+    amountScale: 1.0,
+    note: "豆腐・白身魚などのたんぱく質を追加。慣れてきたら2回食へ。",
+  };
+}
+
+// 各ステージの「基本の主食」。開始直後はここに固定し、
+// さつまいも・じゃがいも等が主食として先に出てくるのを防ぐ。
+const BASE_STAPLE_BY_PHASE: Record<PhaseKey, string> = {
+  "5_6": "gayu_10",
+  "7_8": "gayu_7",
+  "9_11": "gayu_5",
+  "12_18": "nanhan",
 };
 
 // 提案カテゴリ(staple/veg/protein) → 食材マスターのカテゴリ
@@ -268,16 +342,26 @@ export function generateSuggestion(params: {
   recentPlans?: DailyPlan[];
   allergenTags?: Allergen[];
   ingredientStatuses?: Record<string, IngredientStatus>;
+  /** 離乳食開始日を1日目とした経過日数。未設定なら月齢だけで判断する。 */
+  weaningDay?: number;
+  /** 「再生成」の回数。シードに混ぜて別の献立を出すために使う。 */
+  revision?: number;
 }): DailyPlan {
   const {
     dateIso, ageMonths, recentLogs, recentPlans = [],
     allergenTags = [], ingredientStatuses = {},
+    weaningDay, revision = 0,
   } = params;
 
   const phase = phaseFromMonths(ageMonths);
   const guide = BASE_GUIDE[phase.key];
+  // 段階分けは初期の間だけ。中期以降でこれを適用すると、3回食であるべき
+  // 後期の子が step3 の「2回食」に引き戻されてしまう。
+  const step = phase.key === "5_6" ? weaningStepFor(weaningDay) : undefined;
 
-  const { seed, rand } = seededRand(`${dateIso}|${phase.key}`);
+  // revision をシードに含めないと、同じ日付・同じステージでは常に同じ献立になり
+  // 「再生成」を押しても何も変わらない。
+  const { seed, rand } = seededRand(`${dateIso}|${phase.key}|${revision}`);
   const adj = calcAdjustFactor(recentLogs, 7);
 
   // 食材スコア分析
@@ -290,21 +374,50 @@ export function generateSuggestion(params: {
     (l) => Object.values(l.meals).some((m) => m && typeof m.eatenRatio === "number")
   ).length;
 
-  const activeMeals = MEALS.slice(0, guide.mealsPerDay);
-  const itemsPerMeal = phase.key === "5_6" ? 2 : 3;
+  const activeMeals = MEALS.slice(0, step?.mealsPerDay ?? guide.mealsPerDay);
+  const amountScale = step?.amountScale ?? 1;
 
-  const stapleCandidates  = candidatesFor("staple",  phase.key, allergenTags, ingredientStatuses);
+  // 進行段階が分かっているならその段階で出してよいカテゴリだけ、
+  // 分からない（開始日未設定）なら従来どおり月齢で判断する。
+  const allowedCategories: FoodCategory[] =
+    step?.categories ?? (phase.key === "5_6" ? ["staple", "veg"] : ["staple", "veg", "protein"]);
+  const allows = (c: FoodCategory) => allowedCategories.includes(c);
+
+  let stapleCandidates    = candidatesFor("staple",  phase.key, allergenTags, ingredientStatuses);
   const vegCandidates     = candidatesFor("veg",     phase.key, allergenTags, ingredientStatuses);
   const proteinCandidates = candidatesFor("protein", phase.key, allergenTags, ingredientStatuses);
 
-  const recipeCandidates = eligibleRecipes(phase.key, allergenTags, ingredientStatuses, disliked);
+  // 初期のうちは主食はおかゆが基本。これをしないと、開始初日から主食として
+  // じゃがいもやさつまいもが選ばれてしまう。
+  //   - たんぱく質を足す前（開始4週まで）はおかゆのみ
+  //   - それ以降は他の主食も出すが、おかゆが選ばれやすいよう重みを付ける
+  // 米アレルギー等でおかゆが候補から外れている場合は元の候補のままにする。
+  if (step) {
+    const base = stapleCandidates.filter((i) => i.id === BASE_STAPLE_BY_PHASE[phase.key]);
+    if (base.length > 0) {
+      stapleCandidates = allows("protein")
+        ? [...stapleCandidates, ...base, ...base]
+        : base;
+    }
+  }
+
+  // レシピは、その段階で出してよいカテゴリだけで構成されているものに限る
+  // （おかゆだけの時期に「野菜入りの一品」を出さないため）。
+  const recipeCandidates = eligibleRecipes(phase.key, allergenTags, ingredientStatuses, disliked)
+    .filter((r) =>
+      r.ingredientIds.every((id) => {
+        const cat = INGREDIENT_CATEGORY_TO_FOOD_CATEGORY[ingredientById.get(id)!.category];
+        return cat !== undefined && allows(cat);
+      })
+    );
 
   const meals = activeMeals.map((name) => {
     const wobble = 0.9 + rand() * 0.2;
+    const gramsOf = (base: number) => Math.max(1, Math.round(base * adj * wobble * amountScale));
     const gramsFor: Record<FoodCategory, number> = {
-      staple:  Math.round(guide.categories.staple  * adj * wobble),
-      veg:     Math.round(guide.categories.veg     * adj * wobble),
-      protein: Math.round(guide.categories.protein * adj * wobble),
+      staple:  gramsOf(guide.categories.staple),
+      veg:     gramsOf(guide.categories.veg),
+      protein: gramsOf(guide.categories.protein),
     };
 
     // 該当ステージで安全なレシピがあれば半々の確率で「一品」として提案する。
@@ -326,9 +439,9 @@ export function generateSuggestion(params: {
       };
     }
 
-    const staple  = pickWeighted(stapleCandidates,  rand, liked, disliked);
-    const veg     = pickWeighted(vegCandidates,     rand, liked, disliked);
-    const protein = itemsPerMeal >= 3 ? pickWeighted(proteinCandidates, rand, liked, disliked) : undefined;
+    const staple  = allows("staple")  ? pickWeighted(stapleCandidates,  rand, liked, disliked) : undefined;
+    const veg     = allows("veg")     ? pickWeighted(vegCandidates,     rand, liked, disliked) : undefined;
+    const protein = allows("protein") ? pickWeighted(proteinCandidates, rand, liked, disliked) : undefined;
 
     const items: PlanItem[] = [];
     if (staple) {
@@ -364,12 +477,20 @@ export function generateSuggestion(params: {
   return {
     dateIso,
     phase,
-    guideNote: guide.note,
+    // 進行段階が分かっているならそちらの案内を出す。分からない場合は
+    // 開始日を設定すると精度が上がることを伝える。
+    guideNote: step
+      ? step.note
+      : phase.key === "5_6" && weaningDay === undefined
+        ? `${guide.note} 設定で離乳食の開始日を入れると、開始からの日数に合わせて提案します。`
+        : guide.note,
     seed,
     adjustFactor: adj,
     meals,
     version: PLAN_SCHEMA_VERSION,
     insight,
     avoidedFoods: dislikedNames,
+    revision,
+    weaningStepLabel: step?.label,
   };
 }

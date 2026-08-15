@@ -3,6 +3,22 @@ import type { BabyProfile, IngredientCategory, IngredientStatus } from "../domai
 
 const CATEGORIES: IngredientCategory[] = ["carb", "protein", "vitamin", "other"];
 
+/**
+ * Android でホーム画面から起動した PWA (standalone) は window.print() が
+ * 無反応な端末がある。事前に案内を出しておく。
+ */
+function isStandalone(): boolean {
+  return typeof window !== "undefined" && window.matchMedia?.("(display-mode: standalone)").matches === true;
+}
+
+function handlePrint() {
+  try {
+    window.print();
+  } catch (e) {
+    console.error("window.print failed", e);
+  }
+}
+
 function formatDate(ms: number | undefined): string {
   if (!ms) return "";
   const d = new Date(ms);
@@ -30,8 +46,8 @@ export function PrintableRecord(props: {
   return (
     <div className="birthday-setup" style={{ maxWidth: 720, gap: 16, textAlign: "left", alignItems: "stretch" }}>
       <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-        <h2 style={{ margin: 0 }}>🖨 記録の印刷</h2>
-        <button className="onboarding-btn" style={{ width: "auto", padding: "10px 16px" }} onClick={() => window.print()}>
+        <h2 style={{ margin: 0 }}>🖨️ 記録の印刷</h2>
+        <button className="onboarding-btn" style={{ width: "auto", padding: "10px 16px" }} onClick={handlePrint}>
           印刷する
         </button>
       </div>
@@ -39,6 +55,12 @@ export function PrintableRecord(props: {
         保育園への提出や受診時の問診にそのまま使えます。「印刷する」から、プリンターの代わりに
         「PDFとして保存」を選ぶとファイルとしても保存できます。
       </p>
+      {isStandalone() && (
+        <p className="no-print" style={{ fontSize: 13, color: "var(--orange)", margin: 0 }}>
+          ⚠️ ホーム画面のアイコンから起動している場合、Android では「印刷する」が反応しないことがあります。
+          その場合は Chrome でこのページを開き直してから印刷してください。
+        </p>
+      )}
 
       <div className="printable-record">
         <section style={{ marginBottom: 24 }}>

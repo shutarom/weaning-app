@@ -1,10 +1,20 @@
 <!doctype html>
-<html lang="en">
+<!--
+  lang="ja" は必須。lang="en" のままだと Android Chrome が「英語のページ」と判定して
+  日本語本文を自動翻訳しにかかり、「赤ちゃんの生年月日」が「赤ちゃんの心構え」のような
+  無関係な日本語に書き換わる。さらに翻訳はテキストノードを直接差し替えるため、
+  React の管理下の DOM と食い違って removeChild 系のエラーで画面が落ちる。
+  利用者が手動で翻訳をかけた場合にも同じことが起きるので notranslate も併記する。
+-->
+<html lang="ja" translate="no">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="google" content="notranslate" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon-180x180.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>weaning-app</title>
+    <meta name="theme-color" content="#f5f6fa" />
+    <title>離乳食カレンダー</title>
   </head>
   <body>
     <div id="root"></div>

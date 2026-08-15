@@ -1,6 +1,7 @@
 import type { IngredientStatus } from "../domain/types";
 import { syncIngredientStatusToCloud, toMillis } from "./cloudSync";
 import { getBabyId } from "../lib/babyState";
+import { safeGetItem, safeSetItem } from "../lib/storage";
 
 // 赤ちゃんごとに食材チェックを分離する。
 function storageKey(): string {
@@ -15,7 +16,7 @@ function notifyChanged() {
 
 function readAll(): Record<string, IngredientStatus> {
   try {
-    const raw = localStorage.getItem(storageKey());
+    const raw = safeGetItem(storageKey());
     if (!raw) return {};
     return JSON.parse(raw) as Record<string, IngredientStatus>;
   } catch {
@@ -24,7 +25,7 @@ function readAll(): Record<string, IngredientStatus> {
 }
 
 function writeAll(statuses: Record<string, IngredientStatus>): void {
-  localStorage.setItem(storageKey(), JSON.stringify(statuses));
+  safeSetItem(storageKey(), JSON.stringify(statuses));
   notifyChanged();
 }
 

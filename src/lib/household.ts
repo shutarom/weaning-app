@@ -1,9 +1,10 @@
 import { doc, getDoc, setDoc, serverTimestamp } from "firebase/firestore";
 import { db } from "./firebase";
 import { createBaby } from "./babies";
+import { newLocalId } from "./compat";
 
 function genHouseholdId() {
-  return crypto.randomUUID().replace(/-/g, "").slice(0, 10);
+  return newLocalId(10);
 }
 
 export async function createHousehold(uid: string) {

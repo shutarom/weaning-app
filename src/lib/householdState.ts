@@ -1,11 +1,13 @@
+import { safeGetItem, safeRemoveItem, safeSetItem } from "./storage";
+
 const KEY = "weaning_household_id";
 
 export function getHouseholdId(): string | null {
-  return localStorage.getItem(KEY);
+  return safeGetItem(KEY);
 }
 export function setHouseholdId(hid: string) {
-  localStorage.setItem(KEY, hid);
+  safeSetItem(KEY, hid);
 }
 export function clearHouseholdId() {
-  localStorage.removeItem(KEY);
+  safeRemoveItem(KEY);
 }

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generateSuggestion, calcFoodScores, summarizePreferences, PLAN_SCHEMA_VERSION } from "./suggestionEngine";
+import { generateSuggestion, calcFoodScores, summarizePreferences, phaseFromMonths, PLAN_SCHEMA_VERSION } from "./suggestionEngine";
 import { INGREDIENT_MASTER } from "./ingredients";
 import { RECIPE_MASTER } from "./recipes";
 import type { DailyLog, DailyPlan, IngredientStatus } from "./types";
@@ -331,5 +331,170 @@ describe("generateSuggestion — レシピ提案", () => {
     const a = generateSuggestion(params);
     const b = generateSuggestion(params);
     expect(a).toEqual(b);
+  });
+});
+
+describe("generateSuggestion — 再生成", () => {
+  const base = { dateIso: "2026-03-05", ageMonths: 9, recentLogs: [] };
+
+  it("revisionが違えば別の献立になる（同じだと再生成ボタンが効かない）", () => {
+    const first = generateSuggestion({ ...base, revision: 0 });
+    // 何度か押せば必ず中身が変わることを確認する
+    const laterPlans = [1, 2, 3, 4, 5].map((r) => generateSuggestion({ ...base, revision: r }));
+    const changed = laterPlans.some(
+      (p) => allIngredientIdsInPlan(p).join(",") !== allIngredientIdsInPlan(first).join(",")
+    );
+    expect(changed).toBe(true);
+  });
+
+  it("同じrevisionなら何度呼んでも同じ献立になる", () => {
+    const a = generateSuggestion({ ...base, revision: 3 });
+    const b = generateSuggestion({ ...base, revision: 3 });
+    expect(a).toEqual(b);
+  });
+
+  it("revisionはプランに保存される", () => {
+    expect(generateSuggestion({ ...base, revision: 2 }).revision).toBe(2);
+  });
+});
+
+describe("generateSuggestion — 離乳食開始日からの進行段階", () => {
+  // 開始日が設定されている初期(5-6ヶ月)を想定
+  const base = { dateIso: "2026-03-05", ageMonths: 5, recentLogs: [] };
+
+  const catsIn = (plan: DailyPlan) =>
+    new Set(plan.meals.flatMap((m) => m.items.map((i) => i.cat)));
+
+  it("開始1日目は主食(おかゆ)のみで、野菜もタンパク質も出さない", () => {
+    const plan = generateSuggestion({ ...base, weaningDay: 1 });
+    expect([...catsIn(plan)]).toEqual(["staple"]);
+  });
+
+  it("開始直後の主食は10倍がゆに固定される（じゃがいも等が主食にならない）", () => {
+    for (let day = 1; day <= 14; day++) {
+      const plan = generateSuggestion({ ...base, weaningDay: day });
+      expect(allIngredientIdsInPlan(plan)).toEqual(["gayu_10"]);
+    }
+  });
+
+  it("開始1日目は1回食で、量は通常より大幅に少ない", () => {
+    const first = generateSuggestion({ ...base, weaningDay: 1 });
+    const later = generateSuggestion({ ...base, weaningDay: 40 });
+    expect(first.meals).toHaveLength(1);
+    expect(first.meals[0].totalGrams).toBeLessThan(later.meals[0].totalGrams);
+  });
+
+  it("2週間後には野菜が加わるが、タンパク質はまだ出さない", () => {
+    const plan = generateSuggestion({ ...base, weaningDay: 15 });
+    expect(catsIn(plan).has("staple")).toBe(true);
+    expect(catsIn(plan).has("veg")).toBe(true);
+    expect(catsIn(plan).has("protein")).toBe(false);
+  });
+
+  it("1ヶ月後にはタンパク質が加わり2回食になる", () => {
+    const plan = generateSuggestion({ ...base, weaningDay: 29 });
+    expect(catsIn(plan).has("protein")).toBe(true);
+    expect(plan.meals).toHaveLength(2);
+  });
+
+  it("開始日が未設定なら従来どおり月齢だけで判断する（主食＋野菜）", () => {
+    const plan = generateSuggestion({ ...base, weaningDay: undefined });
+    expect(catsIn(plan).has("staple")).toBe(true);
+    expect(catsIn(plan).has("protein")).toBe(false);
+    expect(plan.weaningStepLabel).toBeUndefined();
+  });
+
+  it("段階が進むにつれて出せるカテゴリが減ることはない", () => {
+    let prev = 0;
+    for (const day of [1, 10, 15, 25, 29, 40]) {
+      const n = catsIn(generateSuggestion({ ...base, weaningDay: day })).size;
+      expect(n).toBeGreaterThanOrEqual(prev);
+      prev = n;
+    }
+  });
+
+  it("おかゆだけの時期に野菜入りのレシピが選ばれない", () => {
+    for (let day = 1; day < 15; day++) {
+      for (let d = 1; d <= 28; d++) {
+        const plan = generateSuggestion({
+          ...base,
+          dateIso: `2026-04-${String(d).padStart(2, "0")}`,
+          weaningDay: day,
+        });
+        expect(plan.meals.every((m) => m.recipeName === undefined)).toBe(true);
+      }
+    }
+  });
+
+  it("アレルギー等でおかゆが出せない場合もクラッシュせず何かを提案する", () => {
+    const plan = generateSuggestion({
+      ...base,
+      weaningDay: 1,
+      ingredientStatuses: { gayu_10: { status: "allergic" } },
+    });
+    expect(plan.meals).toHaveLength(1);
+    expect(allIngredientIdsInPlan(plan)).not.toContain("gayu_10");
+  });
+});
+
+describe("phaseFromMonths — ステージ境界", () => {
+  it("6ヶ月はまだ初期（ラベルの5-6ヶ月と一致する）", () => {
+    expect(phaseFromMonths(5).key).toBe("5_6");
+    expect(phaseFromMonths(6).key).toBe("5_6");
+    expect(phaseFromMonths(7).key).toBe("7_8");
+  });
+
+  it("6ヶ月の献立に中期以降の食材(うどん・納豆)が出ない", () => {
+    for (let d = 1; d <= 28; d++) {
+      const plan = generateSuggestion({
+        dateIso: `2026-04-${String(d).padStart(2, "0")}`,
+        ageMonths: 6,
+        recentLogs: [],
+      });
+      for (const id of allIngredientIdsInPlan(plan)) {
+        expect(idToIngredient.get(id)!.stageForms["5_6"]).toBeDefined();
+      }
+    }
+  });
+
+  it("中期以降は進行段階に引き戻されず、月齢どおりの食事回数になる", () => {
+    // 開始から日が浅くても、後期(9-11ヶ月)なら3回食
+    const plan = generateSuggestion({
+      dateIso: "2026-03-05", ageMonths: 10, recentLogs: [], weaningDay: 30,
+    });
+    expect(plan.meals).toHaveLength(3);
+    expect(plan.weaningStepLabel).toBeUndefined();
+  });
+
+  it("初期の最終段階は日数で打ち切られず、2回食から1回食へ戻らない", () => {
+    for (const day of [29, 56, 57, 80]) {
+      const plan = generateSuggestion({
+        dateIso: "2026-03-05", ageMonths: 6, recentLogs: [], weaningDay: day,
+      });
+      expect(plan.meals).toHaveLength(2);
+    }
+  });
+});
+
+describe("generateSuggestion — 初期の主食はおかゆが基本", () => {
+  it("たんぱく質を足す時期でも、主食の過半はおかゆになる", () => {
+    let gayu = 0, total = 0;
+    for (let d = 1; d <= 28; d++) {
+      for (const rev of [0, 1, 2]) {
+        const plan = generateSuggestion({
+          dateIso: `2026-04-${String(d).padStart(2, "0")}`,
+          ageMonths: 6, recentLogs: [], weaningDay: 40, revision: rev,
+        });
+        for (const meal of plan.meals) {
+          for (const item of meal.items) {
+            if (item.cat !== "staple") continue;
+            total++;
+            if (item.ingredientId === "gayu_10") gayu++;
+          }
+        }
+      }
+    }
+    expect(total).toBeGreaterThan(0);
+    expect(gayu / total).toBeGreaterThan(0.5);
   });
 });

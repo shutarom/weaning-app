@@ -1,6 +1,8 @@
 import { useMemo, useReducer, useRef, useState } from "react";
 import type { Allergen, DailyLog, DailyPlan, FreeEntry, IngredientStatus, MealName } from "../domain/types";
 import { generateSuggestion } from "../domain/suggestionEngine";
+import { TextField } from "./TextField";
+import { isCommitEnter, isImeComposing } from "../lib/ime";
 import {
   addFreeEntry,
   getLog,
@@ -123,7 +125,11 @@ function FreeEntrySection({
             placeholder="食材名・メモ"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); if (e.key === "Escape") setAdding(false); }}
+            onKeyDown={(e) => {
+              // 変換確定の Enter で登録されてしまわないようガードする
+              if (isCommitEnter(e)) handleAdd();
+              if (e.key === "Escape" && !isImeComposing(e)) setAdding(false);
+            }}
             autoFocus
           />
           <input
@@ -132,7 +138,7 @@ function FreeEntrySection({
             placeholder="g"
             value={grams}
             onChange={(e) => setGrams(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+            onKeyDown={(e) => { if (isCommitEnter(e)) handleAdd(); }}
             min={0}
           />
           <button className="free-entry-add-btn" onClick={handleAdd}>追加</button>
@@ -151,18 +157,21 @@ function FreeEntrySection({
 export function DayDetail(props: {
   dateIso: string;
   ageMonths: number;
+  /** 離乳食開始日を1日目とした経過日数。開始日が未設定なら undefined。 */
+  weaningDay: number | undefined;
   allergenTags: Allergen[];
   ingredientStatuses: Record<string, IngredientStatus>;
 }) {
-  const { dateIso, ageMonths, allergenTags, ingredientStatuses } = props;
+  const { dateIso, ageMonths, weaningDay, allergenTags, ingredientStatuses } = props;
 
   const [, forceUpdate] = useReducer((x) => x + 1, 0);
 
-  const makePlan = () => {
+  const makePlan = (revision: number) => {
     const recentLogs  = getRecentLogs(dateIso, 14);
     const recentPlans = getRecentPlans(dateIso, 14);
     return generateSuggestion({
-      dateIso, ageMonths, recentLogs, recentPlans, allergenTags, ingredientStatuses,
+      dateIso, ageMonths, weaningDay, revision,
+      recentLogs, recentPlans, allergenTags, ingredientStatuses,
     });
   };
 
@@ -173,7 +182,7 @@ export function DayDetail(props: {
   useMemo(() => {
     setPlan(getOrCreatePlan(dateIso, makePlan));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dateIso, ageMonths, allergenTags, ingredientStatuses]);
+  }, [dateIso, ageMonths, weaningDay, allergenTags, ingredientStatuses]);
 
   const log = (): DailyLog | undefined => getLog(dateIso);
 
@@ -205,7 +214,9 @@ export function DayDetail(props: {
             {dateIso}
             {isToday && <span className="today-chip">今日</span>}
           </div>
-          <div className="day-detail-sub">{plan.phase.label}・{plan.guideNote}</div>
+          <div className="day-detail-sub">
+            {plan.weaningStepLabel ?? plan.phase.label}・{plan.guideNote}
+          </div>
         </div>
         <button
           className="regen-btn"
@@ -249,10 +260,10 @@ export function DayDetail(props: {
       {/* その日のメモ */}
       <div className="day-memo-card">
         <strong>その日のメモ</strong>
-        <input
+        <TextField
           type="text"
           value={currentLog?.dayMemo ?? ""}
-          onChange={(e) => handleDayMemo(e.target.value)}
+          onCommit={handleDayMemo}
           placeholder="気になったことなど…"
         />
       </div>
@@ -359,12 +370,12 @@ function MealCard(props: {
           {/* 提案以外のメモ */}
           <div className="meal-memo-row">
             {showMemo ? (
-              <input
+              <TextField
                 className="meal-memo-input"
                 type="text"
                 placeholder="メモ（アレルギー反応、好み等）"
                 value={mlog?.memo ?? ""}
-                onChange={(e) => onMemo(e.target.value)}
+                onCommit={onMemo}
                 autoFocus
               />
             ) : (

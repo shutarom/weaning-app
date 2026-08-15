@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { INGREDIENT_MASTER, INGREDIENT_CATEGORY_LABEL, ALLERGEN_LABEL } from "../domain/ingredients";
 import type { IngredientCategory, IngredientStatus, IngredientStatusValue } from "../domain/types";
+import { TextField } from "./TextField";
 
 const STATUS_LABEL: Record<IngredientStatusValue, string> = {
   not_tried: "未試行",
@@ -24,12 +25,12 @@ function DetailEditor(props: {
 
   return (
     <div style={{ marginTop: 8, display: "flex", flexDirection: "column", gap: 6 }}>
-      <input
+      <TextField
         className="birthday-input"
         style={{ fontSize: 13 }}
         placeholder="メモ"
         value={entry?.notes ?? ""}
-        onChange={(e) => onPatch({ notes: e.target.value })}
+        onCommit={(v) => onPatch({ notes: v })}
       />
       {status === "safe" && (
         <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -44,21 +45,21 @@ function DetailEditor(props: {
         </div>
       )}
       {status === "safe" && (
-        <input
+        <TextField
           className="birthday-input"
           style={{ fontSize: 13 }}
           placeholder="量の目安（例: 小さじ1）"
           value={entry?.amountNote ?? ""}
-          onChange={(e) => onPatch({ amountNote: e.target.value })}
+          onCommit={(v) => onPatch({ amountNote: v })}
         />
       )}
       {status === "allergic" && (
-        <input
+        <TextField
           className="birthday-input"
           style={{ fontSize: 13 }}
           placeholder="症状（例: 口の周りが赤くなった）"
           value={entry?.symptom ?? ""}
-          onChange={(e) => onPatch({ symptom: e.target.value })}
+          onCommit={(v) => onPatch({ symptom: v })}
         />
       )}
       {status === "allergic" && (

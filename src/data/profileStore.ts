@@ -4,6 +4,7 @@ import {
   addAllergenTagToCloud, removeAllergenTagFromCloud, toMillis,
 } from "./cloudSync";
 import { getBabyId } from "../lib/babyState";
+import { safeGetItem, safeSetItem } from "../lib/storage";
 
 // 赤ちゃんごとにローカルのプロフィールを分離する。
 function storageKey(): string {
@@ -27,29 +28,29 @@ function empty(): BabyProfile {
 }
 
 function migrateLegacy(): BabyProfile | null {
-  const birthdayIso = localStorage.getItem(LEGACY_BIRTHDAY_KEY);
+  const birthdayIso = safeGetItem(LEGACY_BIRTHDAY_KEY);
   if (!birthdayIso) return null;
-  const weaningStartIso = localStorage.getItem(LEGACY_WEANING_START_KEY) ?? "";
+  const weaningStartIso = safeGetItem(LEGACY_WEANING_START_KEY) ?? "";
   return { birthdayIso, weaningStartIso, allergies: [], allergenTags: [], updatedAt: Date.now() };
 }
 
 export function loadProfile(): BabyProfile {
   try {
-    const raw = localStorage.getItem(storageKey());
+    const raw = safeGetItem(storageKey());
     if (raw) return { ...empty(), ...(JSON.parse(raw) as Partial<BabyProfile>) };
   } catch {
     // fall through to legacy/empty
   }
   const legacy = migrateLegacy();
   if (legacy) {
-    localStorage.setItem(storageKey(), JSON.stringify(legacy));
+    safeSetItem(storageKey(), JSON.stringify(legacy));
     return legacy;
   }
   return empty();
 }
 
 function writeLocal(profile: BabyProfile): void {
-  localStorage.setItem(storageKey(), JSON.stringify(profile));
+  safeSetItem(storageKey(), JSON.stringify(profile));
   notifyChanged();
 }
 

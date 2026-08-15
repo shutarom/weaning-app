@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ALLERGENS, ALLERGEN_LABEL, INGREDIENT_MASTER } from "../domain/ingredients";
 import type { Allergen, IngredientStatus } from "../domain/types";
+import { isCommitEnter } from "../lib/ime";
 
 export function AllergyManagement(props: {
   allergies: string[];
@@ -95,7 +96,7 @@ export function AllergyManagement(props: {
             placeholder="例: 卵"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAdd(); }}
+            onKeyDown={(e) => { if (isCommitEnter(e)) handleAdd(); }}
           />
           <button className="onboarding-btn" onClick={handleAdd}>追加</button>
         </div>

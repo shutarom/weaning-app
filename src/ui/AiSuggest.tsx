@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { suggestMenu } from "../lib/aiSuggest";
 import type { AiSuggestionResult, Phase } from "../domain/types";
+import { isCommitEnter } from "../lib/ime";
 
 const CATEGORY_LABEL: Record<AiSuggestionResult["recipes"][number]["category"], string> = {
   carb: "炭水化物",
@@ -73,7 +74,7 @@ export function AiSuggest(props: {
           placeholder="例: にんじん, 鶏ささみ"
           value={fridgeInput}
           onChange={(e) => setFridgeInput(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") void handleSuggest(); }}
+          onKeyDown={(e) => { if (isCommitEnter(e)) void handleSuggest(); }}
         />
         <button className="btn-primary" style={{ marginTop: 10 }} disabled={busy} onClick={handleSuggest}>
           {busy ? "考え中…" : "献立を提案してもらう"}

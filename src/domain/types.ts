@@ -44,6 +44,11 @@ export type DailyPlan = {
   version: number;
   insight?: string;
   avoidedFoods?: string[];
+  // 「再生成」を押した回数。乱数シードに混ぜており、これが無いと同じ日付・
+  // 同じステージでは常に同じ献立になってしまう（＝再生成しても何も変わらない）。
+  revision?: number;
+  // 離乳食開始からの日数に基づく進行段階（開始日が未設定なら undefined）
+  weaningStepLabel?: string;
 };
 
 // 提案以外の食材・メモを自由に追加できるエントリ

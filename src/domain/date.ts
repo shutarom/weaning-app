@@ -62,6 +62,13 @@ export function getWeekGrid(anchor: Date): Date[] {
   return days;
 }
 
+/** from から to までの日数（同日なら0）。時刻は無視して日付だけで数える。 */
+export function daysBetween(from: Date, to: Date): number {
+  const a = new Date(from.getFullYear(), from.getMonth(), from.getDate()).getTime();
+  const b = new Date(to.getFullYear(), to.getMonth(), to.getDate()).getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
 export function monthsBetween(birth: Date, onDate: Date): number {
   // ざっくり月単位（同日未満は1ヶ月減算）
   let months = (onDate.getFullYear() - birth.getFullYear()) * 12 + (onDate.getMonth() - birth.getMonth());
