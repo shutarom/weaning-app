@@ -1,7 +1,10 @@
-import { getGenerativeModel } from "firebase/ai";
-import { ai } from "./firebase";
+import { getAI, GoogleAIBackend, getGenerativeModel } from "firebase/ai";
+import { app } from "./firebase";
 import type { AiSuggestionResult, Phase } from "../domain/types";
 
+// firebase/ai はこのファイル(AI提案画面からのみ遅延読み込みされる)でだけ使うため、
+// ここでインスタンス化してメインバンドルに含まれないようにする。
+const ai = getAI(app, { backend: new GoogleAIBackend() });
 const model = getGenerativeModel(ai, {
   model: "gemini-3.6-flash",
   generationConfig: { responseMimeType: "application/json" },

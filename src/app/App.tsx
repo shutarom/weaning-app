@@ -1,11 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, lazy, useEffect, useMemo, useState } from "react";
 import { Calendar } from "../ui/Calendar";
 import { DayDetail } from "../ui/DayDetail";
-import { IngredientChecklist } from "../ui/IngredientChecklist";
-import { AllergyManagement } from "../ui/AllergyManagement";
-import { AiSuggest } from "../ui/AiSuggest";
-import { BackupScreen } from "../ui/BackupScreen";
-import { PrintableRecord } from "../ui/PrintableRecord";
 import {
   addMonths,
   clampToMonthFirst,
@@ -45,10 +40,31 @@ import { copyText } from "../lib/compat";
 import { isCommitEnter, isImeComposing } from "../lib/ime";
 import { getStorageError, STORAGE_ERROR_EVENT_NAME } from "../lib/storage";
 
+// メイン(カレンダー)以外の画面は初回表示時には不要なので、開いたときだけ読み込む。
+const IngredientChecklist = lazy(() =>
+  import("../ui/IngredientChecklist").then((m) => ({ default: m.IngredientChecklist }))
+);
+const AllergyManagement = lazy(() =>
+  import("../ui/AllergyManagement").then((m) => ({ default: m.AllergyManagement }))
+);
+const AiSuggest = lazy(() => import("../ui/AiSuggest").then((m) => ({ default: m.AiSuggest })));
+const BackupScreen = lazy(() => import("../ui/BackupScreen").then((m) => ({ default: m.BackupScreen })));
+const PrintableRecord = lazy(() =>
+  import("../ui/PrintableRecord").then((m) => ({ default: m.PrintableRecord }))
+);
+
 type ViewMode = "calendar" | "settings" | "ingredients" | "allergies" | "ai" | "backup" | "print";
 
 function todayIso(): string {
   return toIso(new Date());
+}
+
+function ViewLoadingFallback() {
+  return (
+    <div className="onboarding">
+      <p className="hint-text">読み込み中…</p>
+    </div>
+  );
 }
 
 function SyncBadge({ status, onRecover }: { status: SyncStatus; onRecover: () => void }) {
@@ -714,27 +730,31 @@ function BabyScopedApp({
 
   if (view === "ingredients") {
     return (
-      <IngredientChecklist
-        statuses={ingredientStatuses}
-        onChange={(id, patch) => setIngredientStatus(id, patch)}
-        onClose={() => setView("calendar")}
-      />
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <IngredientChecklist
+          statuses={ingredientStatuses}
+          onChange={(id, patch) => setIngredientStatus(id, patch)}
+          onClose={() => setView("calendar")}
+        />
+      </Suspense>
     );
   }
 
   if (view === "allergies") {
     return (
-      <AllergyManagement
-        allergies={allergies}
-        allergenTags={allergenTags}
-        statuses={ingredientStatuses}
-        onAddAllergy={addAllergy}
-        onRemoveAllergy={removeAllergy}
-        onToggleAllergenTag={(tag) =>
-          allergenTags.includes(tag) ? removeAllergenTag(tag) : addAllergenTag(tag)
-        }
-        onClose={() => setView("calendar")}
-      />
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <AllergyManagement
+          allergies={allergies}
+          allergenTags={allergenTags}
+          statuses={ingredientStatuses}
+          onAddAllergy={addAllergy}
+          onRemoveAllergy={removeAllergy}
+          onToggleAllergenTag={(tag) =>
+            allergenTags.includes(tag) ? removeAllergenTag(tag) : addAllergenTag(tag)
+          }
+          onClose={() => setView("calendar")}
+        />
+      </Suspense>
     );
   }
 
@@ -756,30 +776,38 @@ function BabyScopedApp({
       getRecentPlans(selectedIso, 14)
     );
     return (
-      <AiSuggest
-        ageMonths={ageMonths}
-        phase={phase}
-        allergies={allAllergyLabels}
-        safeIngredients={safeIngredients}
-        notTriedIngredients={notTriedIngredients}
-        likedIngredients={likedIngredients}
-        dislikedIngredients={dislikedIngredients}
-        onClose={() => setView("calendar")}
-      />
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <AiSuggest
+          ageMonths={ageMonths}
+          phase={phase}
+          allergies={allAllergyLabels}
+          safeIngredients={safeIngredients}
+          notTriedIngredients={notTriedIngredients}
+          likedIngredients={likedIngredients}
+          dislikedIngredients={dislikedIngredients}
+          onClose={() => setView("calendar")}
+        />
+      </Suspense>
     );
   }
 
   if (view === "backup") {
-    return <BackupScreen onClose={() => setView("calendar")} />;
+    return (
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <BackupScreen onClose={() => setView("calendar")} />
+      </Suspense>
+    );
   }
 
   if (view === "print") {
     return (
-      <PrintableRecord
-        profile={profile}
-        statuses={ingredientStatuses}
-        onClose={() => setView("calendar")}
-      />
+      <Suspense fallback={<ViewLoadingFallback />}>
+        <PrintableRecord
+          profile={profile}
+          statuses={ingredientStatuses}
+          onClose={() => setView("calendar")}
+        />
+      </Suspense>
     );
   }
 
